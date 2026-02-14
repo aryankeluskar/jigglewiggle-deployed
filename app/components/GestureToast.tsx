@@ -42,11 +42,11 @@ export function GestureToast({ action, seq }: GestureToastProps) {
       }}
     >
       <div
-        className="flex items-center gap-3 px-5 py-2.5 bg-black/80 border border-neon-cyan/30 rounded-sm backdrop-blur-sm"
+        className="flex items-center gap-3 px-6 py-3 bg-black/85 border border-neon-cyan/40 rounded-sm backdrop-blur-sm"
         style={{ fontFamily: "var(--font-audiowide)" }}
       >
-        <span className="text-2xl">{meta.icon}</span>
-        <span className="text-xs tracking-[0.2em] uppercase neon-text-cyan">
+        <span className="text-3xl">{meta.icon}</span>
+        <span className="text-sm tracking-[0.2em] uppercase neon-text-cyan">
           {meta.label}
         </span>
       </div>
@@ -70,7 +70,7 @@ export function GestureProgressBar({ progress, pending }: GestureProgressBarProp
       : "linear-gradient(90deg, #00ffcc, #00aaff)";
 
   return (
-    <div className="absolute top-0 left-0 right-0 h-1 z-30 pointer-events-none">
+    <div className="absolute top-0 left-0 right-0 h-1.5 z-30 pointer-events-none">
       <div
         className="h-full rounded-full"
         style={{
