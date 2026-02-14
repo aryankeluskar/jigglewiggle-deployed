@@ -22,6 +22,24 @@ import type { GestureAction } from "./lib/gestureControl";
 import { GestureToast, GestureProgressBar } from "./components/GestureToast";
 import GestureGuide from "./components/GestureGuide";
 import type { NormalizedLandmark } from "./lib/pose";
+import {
+  startRecording,
+  stopRecording,
+  recordFrame,
+  isRecording,
+  downloadRecording,
+  loadRecording,
+} from "./lib/poseRecorder";
+import type { PoseRecording } from "./lib/poseRecorder";
+import {
+  startReplay,
+  pauseReplay,
+  resumeReplay,
+  stopReplay,
+} from "./lib/poseReplay";
+import { resetCoach } from "./lib/coach";
+import { resetScoring } from "./lib/scoring";
+import RecordReplayPanel from "./components/RecordReplayPanel";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
@@ -89,6 +107,9 @@ export default function Home() {
   const [gestureToastSeq, setGestureToastSeq] = useState(0);
   const [gestureProgress, setGestureProgress] = useState(0);
   const [gesturePending, setGesturePending] = useState<GestureAction | null>(null);
+  const [replayActive, setReplayActive] = useState(false);
+  const [replayPaused, setReplayPaused] = useState(false);
+  const [replayProgress, setReplayProgress] = useState(0);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -97,6 +118,9 @@ export default function Home() {
   const segmentationStartedRef = useRef(false);
   const smoothedScoreRef = useRef(0);
   const groqAnchorRef = useRef<number | null>(null);
+  const replayModeRef = useRef(false);
+  const replayVideoTimeRef = useRef<number | null>(null);
+  const loadedRecordingRef = useRef<PoseRecording | null>(null);
 
   // Score aura class
   const getAuraClass = () => {
@@ -310,6 +334,7 @@ export default function Home() {
   // Start Groq vision scoring when video is ready
   useEffect(() => {
     if (extractionStatus !== "done" || !poseTimeline || !segmentationReady) return;
+    if (replayActive) return;
 
     const cleanup = startGroqScoring(
       () => youtubePanelRef.current?.captureFrame() ?? null,
@@ -325,15 +350,20 @@ export default function Home() {
       cleanup();
       groqAnchorRef.current = null;
     };
-  }, [extractionStatus, poseTimeline, segmentationReady]);
+  }, [extractionStatus, poseTimeline, segmentationReady, replayActive]);
 
   // Stable callback ref to avoid re-mounting CameraPanel
   const onPoseRef = useRef<(landmarks: NormalizedLandmark[] | null) => void>(null);
   onPoseRef.current = (landmarks: NormalizedLandmark[] | null) => {
     livePoseRef.current = landmarks;
 
-    // Gesture detection
-    const gesture = processGestureLandmarks(landmarks);
+    // Recording hook
+    if (isRecording()) recordFrame(landmarks!, currentVideoTime);
+
+    // Gesture detection (skip during replay to prevent spurious video seeks)
+    const gesture = replayModeRef.current
+      ? { lastAction: null as GestureAction | null, pending: null as GestureAction | null, progress: 0 }
+      : processGestureLandmarks(landmarks);
     setGestureProgress(gesture.progress);
     setGesturePending(gesture.pending);
     if (gesture.lastAction) {
@@ -363,10 +393,11 @@ export default function Home() {
     const issues = [...frame.issues];
 
     // 2. Geometric reference comparison (every frame, when timeline available)
+    const effectiveVideoTime = replayVideoTimeRef.current ?? currentVideoTime;
     let detailed: DetailedComparison | null = null;
     if (poseTimeline && landmarks && landmarks.length >= 33) {
-      const refFrame = findClosestFrame(poseTimeline, currentVideoTime);
-      if (refFrame && Math.abs(refFrame.time - currentVideoTime) <= MAX_REF_DISTANCE_SEC) {
+      const refFrame = findClosestFrame(poseTimeline, effectiveVideoTime);
+      if (refFrame && Math.abs(refFrame.time - effectiveVideoTime) <= MAX_REF_DISTANCE_SEC) {
         detailed = comparePosesDetailed(refFrame.landmarks, landmarks);
       }
     }
@@ -375,7 +406,7 @@ export default function Home() {
     let finalScore: number;
     if (detailed) {
       const geoScore = detailed.matchScore;
-      const groqAnchor = groqAnchorRef.current;
+      const groqAnchor = replayModeRef.current ? null : groqAnchorRef.current;
       if (groqAnchor !== null) {
         finalScore = Math.round(0.5 * geoScore + 0.4 * groqAnchor + 0.1 * frame.score);
       } else {
@@ -411,12 +442,14 @@ export default function Home() {
       summary.reference = detailed;
     }
 
-    getCoachMessage(summary).then((result) => {
-      if (result) {
-        setCoachMsg(result.message);
-        if (result.audio) speak(result.audio);
-      }
-    });
+    if (!replayModeRef.current) {
+      getCoachMessage(summary).then((result) => {
+        if (result) {
+          setCoachMsg(result.message);
+          if (result.audio) speak(result.audio);
+        }
+      });
+    }
   };
 
   const handlePose = useCallback(
@@ -425,6 +458,79 @@ export default function Home() {
     },
     []
   );
+
+  // --- Record / Replay handlers ---
+  const handleStartRecord = () => {
+    if (videoId) startRecording(videoId);
+  };
+
+  const handleStopRecord = () => {
+    const rec = stopRecording();
+    downloadRecording(rec);
+  };
+
+  const handleLoadRecording = async (file: File) => {
+    const rec = await loadRecording(file);
+    loadedRecordingRef.current = rec;
+  };
+
+  const handleStartReplay = () => {
+    const rec = loadedRecordingRef.current;
+    if (!rec) return;
+
+    // Reset scoring / coach / gesture state for a clean run
+    smoothedScoreRef.current = 0;
+    setScore(0);
+    resetScoring();
+    resetCoach();
+    resetGestureState();
+    groqAnchorRef.current = null;
+    setGroqFeedback("");
+
+    replayModeRef.current = true;
+    setReplayActive(true);
+    setReplayPaused(false);
+    setReplayProgress(0);
+
+    startReplay({
+      recording: rec,
+      onFrame: (landmarks, videoTime) => {
+        replayVideoTimeRef.current = videoTime;
+        onPoseRef.current?.(landmarks);
+      },
+      seekVideo: (time) => {
+        youtubePanelRef.current?.seekTo(time);
+      },
+      onComplete: () => {
+        replayModeRef.current = false;
+        replayVideoTimeRef.current = null;
+        setReplayActive(false);
+        setReplayPaused(false);
+        setReplayProgress(100);
+      },
+      onProgress: (frameIndex, totalFrames) => {
+        setReplayProgress(totalFrames > 0 ? (frameIndex / totalFrames) * 100 : 0);
+      },
+    });
+  };
+
+  const handlePauseReplay = () => {
+    pauseReplay();
+    setReplayPaused(true);
+  };
+
+  const handleResumeReplay = () => {
+    resumeReplay();
+    setReplayPaused(false);
+  };
+
+  const handleStopReplay = () => {
+    stopReplay();
+    replayModeRef.current = false;
+    replayVideoTimeRef.current = null;
+    setReplayActive(false);
+    setReplayPaused(false);
+  };
 
   return (
     <div
@@ -561,6 +667,22 @@ export default function Home() {
       <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
         <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} />
       </footer>
+
+      {/* Record / Replay toolbar */}
+      <RecordReplayPanel
+        videoId={videoId}
+        poseTimeline={poseTimeline}
+        isReplaying={replayActive}
+        isPaused={replayPaused}
+        replayProgress={replayProgress}
+        onStartRecord={handleStartRecord}
+        onStopRecord={handleStopRecord}
+        onLoadRecording={handleLoadRecording}
+        onStartReplay={handleStartReplay}
+        onPauseReplay={handlePauseReplay}
+        onResumeReplay={handleResumeReplay}
+        onStopReplay={handleStopReplay}
+      />
     </div>
   );
 }

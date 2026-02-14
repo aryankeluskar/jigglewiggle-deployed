@@ -16,22 +16,31 @@ const LEFT_SHOULDER = 11;
 const RIGHT_SHOULDER = 12;
 const LEFT_WRIST = 15;
 const RIGHT_WRIST = 16;
+const RIGHT_INDEX = 20;
 
 // --- Thresholds ---
 const STILLNESS_THRESHOLD = 0.03; // normalized coord delta per frame
-const PLAY_PAUSE_DWELL_MS = 1500;
 const RESTART_DWELL_MS = 2000;
 const COOLDOWN_MS = 2000;
 const SWIPE_MIN_DELTA = 0.15; // normalized horizontal distance
 const SWIPE_MAX_MS = 400; // max time for swipe motion
+
+// Wave detection thresholds (tracks fingertip-to-wrist offset for wrist flicks)
+const WAVE_MIN_CHANGES = 3; // direction reversals needed to trigger
+const WAVE_TIME_WINDOW_MS = 1200; // time window for counting reversals
+const WAVE_MIN_DELTA_X = 0.015; // min change in finger-wrist offset to count a reversal
 
 // --- Module-level state (not React state — avoids re-renders) ---
 let prevRightWrist: { x: number; y: number } | null = null;
 let prevLeftWrist: { x: number; y: number } | null = null;
 
 // Dwell timers
-let rightHandDwellStart: number | null = null;
 let bothHandsDwellStart: number | null = null;
+
+// Wave tracking (finger-to-wrist relative offset)
+let waveReversals: number[] = []; // timestamps of direction reversals
+let waveLastDir: number = 0; // -1 = moving left, 1 = moving right, 0 = unknown
+let waveAnchorOffset: number | null = null; // finger-wrist x offset at last reversal
 
 // Swipe tracking
 let swipeStartX: number | null = null;
@@ -52,9 +61,11 @@ export function processGestureLandmarks(landmarks: NormalizedLandmark[] | null):
 
   // Cooldown check
   if (now - lastTriggerTime < COOLDOWN_MS) {
-    // Reset all dwell state during cooldown
-    rightHandDwellStart = null;
+    // Reset all state during cooldown
     bothHandsDwellStart = null;
+    waveReversals = [];
+    waveLastDir = 0;
+    waveAnchorOffset = null;
     swipeStartX = null;
     swipeStartTime = null;
     prevRightWrist = { x: landmarks[RIGHT_WRIST].x, y: landmarks[RIGHT_WRIST].y };
@@ -70,7 +81,6 @@ export function processGestureLandmarks(landmarks: NormalizedLandmark[] | null):
   const rightAboveHead = rWrist.y < Math.min(lShoulder.y, rShoulder.y) - 0.1;
   const leftAboveHead = lWrist.y < Math.min(lShoulder.y, rShoulder.y) - 0.1;
   const leftAboveShoulder = lWrist.y < lShoulder.y;
-  const leftBelowShoulder = lWrist.y >= lShoulder.y;
 
   // Check stillness (compare to previous frame)
   const rightStill = prevRightWrist ? dist(rWrist, prevRightWrist) < STILLNESS_THRESHOLD : false;
@@ -89,7 +99,6 @@ export function processGestureLandmarks(landmarks: NormalizedLandmark[] | null):
     if (elapsed >= RESTART_DWELL_MS) {
       // Trigger restart
       bothHandsDwellStart = null;
-      rightHandDwellStart = null;
       lastTriggerTime = now;
       return { lastAction: "restart", pending: null, progress: 1 };
     }
@@ -98,21 +107,53 @@ export function processGestureLandmarks(landmarks: NormalizedLandmark[] | null):
     bothHandsDwellStart = null;
   }
 
-  // --- Priority 2: Right hand above head, left below shoulder (play/pause) ---
-  if (rightAboveHead && leftBelowShoulder && rightStill) {
-    if (!rightHandDwellStart) {
-      rightHandDwellStart = now;
+  // --- Priority 2: Wrist wave to play/pause ---
+  // Right hand above shoulder: detect wrist flick (finger-to-wrist offset oscillation)
+  const rightAboveShoulder = rWrist.y < rShoulder.y;
+  const rIndex = landmarks[RIGHT_INDEX];
+  if (rightAboveShoulder) {
+    // Relative horizontal offset: how far the fingertip is from the wrist
+    const offset = rIndex.x - rWrist.x;
+    if (waveAnchorOffset === null) {
+      waveAnchorOffset = offset;
+      waveLastDir = 0;
+    } else {
+      const delta = offset - waveAnchorOffset;
+      if (Math.abs(delta) >= WAVE_MIN_DELTA_X) {
+        const dir = delta > 0 ? 1 : -1;
+        if (waveLastDir !== 0 && dir !== waveLastDir) {
+          // Direction reversed — count it
+          waveReversals.push(now);
+          waveAnchorOffset = offset;
+        } else if (waveLastDir === 0) {
+          waveAnchorOffset = offset;
+        }
+        waveLastDir = dir;
+      }
     }
-    const elapsed = now - rightHandDwellStart;
-    if (elapsed >= PLAY_PAUSE_DWELL_MS) {
-      // Trigger play/pause
-      rightHandDwellStart = null;
+
+    // Prune old reversals outside the time window
+    waveReversals = waveReversals.filter((t) => now - t < WAVE_TIME_WINDOW_MS);
+
+    if (waveReversals.length >= WAVE_MIN_CHANGES) {
+      // Wrist wave detected — trigger play/pause
+      waveReversals = [];
+      waveLastDir = 0;
+      waveAnchorOffset = null;
       lastTriggerTime = now;
       return { lastAction: "play_pause", pending: null, progress: 1 };
     }
-    return { lastAction: null, pending: "play_pause", progress: elapsed / PLAY_PAUSE_DWELL_MS };
+
+    // Show progress toward triggering
+    const progress = waveReversals.length / WAVE_MIN_CHANGES;
+    if (progress > 0) {
+      return { lastAction: null, pending: "play_pause", progress };
+    }
   } else {
-    rightHandDwellStart = null;
+    // Hand dropped — reset wave state
+    waveReversals = [];
+    waveLastDir = 0;
+    waveAnchorOffset = null;
   }
 
   // --- Priority 3: Left hand swipe (skip) ---
@@ -151,8 +192,10 @@ export function processGestureLandmarks(landmarks: NormalizedLandmark[] | null):
 export function resetGestureState(): void {
   prevRightWrist = null;
   prevLeftWrist = null;
-  rightHandDwellStart = null;
   bothHandsDwellStart = null;
+  waveReversals = [];
+  waveLastDir = 0;
+  waveAnchorOffset = null;
   swipeStartX = null;
   swipeStartTime = null;
   lastTriggerTime = 0;

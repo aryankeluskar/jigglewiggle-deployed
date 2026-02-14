@@ -4,10 +4,10 @@ import { useState } from "react";
 
 const GESTURES = [
   {
-    icon: "\u270B",
+    icon: "\u{1F44B}",
     key: "play_pause",
     label: "Play / Pause",
-    desc: "Right hand above head, hold 1.5s",
+    desc: "Flick wrist side-to-side above shoulder",
   },
   {
     icon: "\u{1F449}",
