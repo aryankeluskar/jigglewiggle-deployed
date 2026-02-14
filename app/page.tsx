@@ -11,29 +11,86 @@ import { getCoachMessage } from "./lib/coach";
 import { speak } from "./lib/speech";
 import type { NormalizedLandmark } from "./lib/pose";
 
+type DownloadStatus = "idle" | "downloading" | "done" | "error";
+
 export default function Home() {
   const [videoId, setVideoId] = useState<string | null>(null);
+  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>("idle");
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [score, setScore] = useState(0);
   const [coachMsg, setCoachMsg] = useState("");
+
+  const handleUrl = useCallback(async (url: string) => {
+    const id = extractVideoId(url);
+    if (!id) {
+      alert("Could not extract a YouTube video ID from that URL.");
+      return;
+    }
+
+    setVideoId(id);
+    setDownloadStatus("downloading");
+    setDownloadProgress(0);
+    setDownloadError(null);
+
+    try {
+      const res = await fetch("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: id }),
+      });
+
+      if (!res.ok || !res.body) {
+        setDownloadStatus("error");
+        setDownloadError(`Server responded with ${res.status}`);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n\n");
+        buf = lines.pop() || "";
+
+        for (const line of lines) {
+          const dataLine = line.replace(/^data: /, "");
+          if (!dataLine) continue;
+
+          try {
+            const event = JSON.parse(dataLine);
+            if (event.type === "progress") {
+              setDownloadProgress(event.percent);
+            } else if (event.type === "done") {
+              setDownloadStatus("done");
+            } else if (event.type === "error") {
+              setDownloadStatus("error");
+              setDownloadError(event.message);
+            }
+          } catch {
+            // ignore malformed SSE lines
+          }
+        }
+      }
+    } catch (err) {
+      setDownloadStatus("error");
+      setDownloadError(err instanceof Error ? err.message : "Network error");
+    }
+  }, []);
 
   // Read ?url= query param on mount (for Chrome extension)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlParam = params.get("url");
     if (urlParam) {
-      const id = extractVideoId(urlParam);
-      if (id) setVideoId(id);
+      handleUrl(urlParam);
     }
-  }, []);
-
-  const handleUrl = (url: string) => {
-    const id = extractVideoId(url);
-    if (id) {
-      setVideoId(id);
-    } else {
-      alert("Could not extract a YouTube video ID from that URL.");
-    }
-  };
+  }, [handleUrl]);
 
   // Stable callback ref to avoid re-mounting CameraPanel
   const onPoseRef = useRef<(landmarks: NormalizedLandmark[] | null) => void>(null);
@@ -74,7 +131,12 @@ export default function Home() {
       <main className="flex-1 flex gap-4 p-4 min-h-0">
         {/* Left — YouTube */}
         <div className="flex-1 min-w-0">
-          <YoutubePanel videoId={videoId} />
+          <YoutubePanel
+            videoId={videoId}
+            downloadStatus={downloadStatus}
+            downloadProgress={downloadProgress}
+            downloadError={downloadError}
+          />
         </div>
 
         {/* Right — Camera */}
