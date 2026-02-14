@@ -73,26 +73,28 @@ export async function POST(request: NextRequest) {
         stderrBuf += data.toString();
       });
 
+      let closed = false;
+      const safeEnqueue = (data: string) => {
+        if (!closed) controller.enqueue(encoder.encode(data));
+      };
+      const safeClose = () => {
+        if (!closed) { closed = true; controller.close(); }
+      };
+
       proc.on("error", (err) => {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`)
-        );
-        controller.close();
+        safeEnqueue(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
+        safeClose();
       });
 
       proc.on("close", (code) => {
         if (code === 0) {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
-          );
+          safeEnqueue(`data: ${JSON.stringify({ type: "done" })}\n\n`);
         } else {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "error", message: stderrBuf.slice(-500) || `yt-dlp exited with code ${code}` })}\n\n`
-            )
+          safeEnqueue(
+            `data: ${JSON.stringify({ type: "error", message: stderrBuf.slice(-500) || `yt-dlp exited with code ${code}` })}\n\n`
           );
         }
-        controller.close();
+        safeClose();
       });
     },
   });
