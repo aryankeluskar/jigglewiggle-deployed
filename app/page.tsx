@@ -13,10 +13,12 @@ import type { StripPoseTimeline } from "./lib/videoPoseExtractor";
 import { computeScore, buildPoseSummary } from "./lib/scoring";
 import { getCoachMessage } from "./lib/coach";
 import { speak } from "./lib/speech";
+import { segmentVideo, isSegmentationAvailable } from "./lib/segmentation";
 import type { NormalizedLandmark } from "./lib/pose";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
+type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailable";
 
 const STRIP_POSE_CACHE_VERSION = 3;
 const STRIP_POSE_INTERVAL_SECONDS = 2;
@@ -56,10 +58,14 @@ export default function Home() {
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
   const [score, setScore] = useState(0);
   const [coachMsg, setCoachMsg] = useState("");
+  const [segmentationStatus, setSegmentationStatus] = useState<SegmentationStatus>("idle");
+  const [segmentationProgress, setSegmentationProgress] = useState(0);
+  const [segmentedVideoUrl, setSegmentedVideoUrl] = useState<string | null>(null);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const livePoseRef = useRef<NormalizedLandmark[] | null>(null);
   const stripPoseCacheRef = useRef<Map<string, StripPoseTimeline>>(new Map());
+  const segmentationStartedRef = useRef(false);
 
   // Score aura class
   const getAuraClass = () => {
@@ -92,6 +98,10 @@ export default function Home() {
       setPoseTimeline(null);
       setExtractionStatus("idle");
       setExtractionProgress(0);
+      setSegmentationStatus("idle");
+      setSegmentationProgress(0);
+      setSegmentedVideoUrl(null);
+      segmentationStartedRef.current = false;
     }
 
     setVideoId(id);
@@ -190,6 +200,52 @@ export default function Home() {
         setExtractionStatus("done");
       });
   }, [downloadStatus, videoId, extractionStatus]);
+
+  // Kick off segmentation after download completes (parallel with pose extraction)
+  // Uses a ref guard instead of segmentationStatus in deps to avoid the effect
+  // re-running (and cancelling itself) when we set segmentationStatus to "segmenting".
+  useEffect(() => {
+    if (downloadStatus !== "done" || !videoId || segmentationStartedRef.current) return;
+    segmentationStartedRef.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      const available = await isSegmentationAvailable();
+      if (cancelled) return;
+
+      if (!available) {
+        setSegmentationStatus("unavailable");
+        return;
+      }
+
+      setSegmentationStatus("segmenting");
+      setSegmentationProgress(0);
+
+      try {
+        const url = await segmentVideo(videoId, (_status, progress) => {
+          if (!cancelled && progress !== undefined) {
+            setSegmentationProgress(progress);
+          }
+        });
+
+        if (!cancelled) {
+          setSegmentedVideoUrl(url);
+          setSegmentationStatus("done");
+        }
+      } catch (err) {
+        console.error("Segmentation failed:", err);
+        if (!cancelled) {
+          setSegmentationStatus("error");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [downloadStatus, videoId]);
 
   // Poll video currentTime via rAF loop
   useEffect(() => {
@@ -290,12 +346,18 @@ export default function Home() {
             downloadError={downloadError}
             extractionStatus={extractionStatus}
             extractionProgress={extractionProgress}
+            segmentationStatus={segmentationStatus}
+            segmentationProgress={segmentationProgress}
           />
         </div>
 
         {/* Right — Live Camera with score-reactive glow */}
         <div className={`flex-1 min-w-0 transition-all duration-700 ${getCameraGlow()}`}>
-          <CameraPanel onPose={handlePose} />
+          <CameraPanel
+            onPose={handlePose}
+            segmentedVideoUrl={segmentedVideoUrl}
+            referenceVideoTime={currentVideoTime}
+          />
         </div>
       </main>
 

@@ -2,10 +2,13 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { drawSkeleton, loadPose } from "../lib/pose";
+import { extractOutline } from "../lib/outlineExtractor";
 import type { NormalizedLandmark, PoseResults } from "../lib/pose";
 
 type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
+  segmentedVideoUrl?: string | null;
+  referenceVideoTime?: number;
 };
 
 const NEON_SKELETON_STYLE = {
@@ -18,12 +21,96 @@ const NEON_SKELETON_STYLE = {
   clear: true,
 } as const;
 
-export default function CameraPanel({ onPose }: Props) {
+export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayVideoRef = useRef<HTMLVideoElement>(null);
+  const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const poseRef = useRef<unknown>(null);
   const animFrameRef = useRef<number>(0);
   const activeRef = useRef(true);
+  const overlayRafRef = useRef<number>(0);
+
+  // Create offscreen temp canvas for outline extraction
+  useEffect(() => {
+    if (!tempCanvasRef.current) {
+      tempCanvasRef.current = document.createElement("canvas");
+      tempCanvasRef.current.width = 640;
+      tempCanvasRef.current.height = 480;
+    }
+  }, []);
+
+  // Load and play the segmented overlay video when URL changes
+  useEffect(() => {
+    const video = overlayVideoRef.current;
+    if (!video || !segmentedVideoUrl) return;
+
+    video.crossOrigin = "anonymous";
+    video.src = segmentedVideoUrl;
+    video.loop = true;
+    video.muted = true;
+    video.play().catch((err) => {
+      console.error("Overlay video play failed:", err);
+    });
+  }, [segmentedVideoUrl]);
+
+  // Sync overlay video time with reference video
+  useEffect(() => {
+    const video = overlayVideoRef.current;
+    if (!video || !segmentedVideoUrl || referenceVideoTime === undefined) return;
+    if (video.readyState < 2) return;
+
+    // Only seek if drift is significant (>0.3s) to avoid constant seeking
+    if (Math.abs(video.currentTime - referenceVideoTime) > 0.3) {
+      video.currentTime = referenceVideoTime;
+    }
+  }, [referenceVideoTime, segmentedVideoUrl]);
+
+  // Render the outline overlay on a separate canvas via rAF
+  useEffect(() => {
+    if (!segmentedVideoUrl) return;
+
+    const renderOverlay = () => {
+      const overlayVideo = overlayVideoRef.current;
+      const overlayCanvas = overlayCanvasRef.current;
+      const tempCanvas = tempCanvasRef.current;
+
+      if (overlayCanvas && overlayVideo && tempCanvas && overlayVideo.readyState >= 2) {
+        overlayCanvas.width = overlayCanvas.offsetWidth;
+        overlayCanvas.height = overlayCanvas.offsetHeight;
+
+        // Resize temp canvas to match
+        tempCanvas.width = overlayCanvas.width;
+        tempCanvas.height = overlayCanvas.height;
+
+        const outlineData = extractOutline(overlayVideo, tempCanvas);
+        if (outlineData) {
+          const ctx = overlayCanvas.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            // Draw outline to temp canvas, then mirror onto overlay canvas
+            const tempCtx = tempCanvas.getContext("2d");
+            if (tempCtx) {
+              tempCtx.putImageData(outlineData, 0, 0);
+              ctx.save();
+              ctx.scale(-1, 1);
+              ctx.drawImage(tempCanvas, -overlayCanvas.width, 0, overlayCanvas.width, overlayCanvas.height);
+              ctx.restore();
+            }
+          }
+        }
+      }
+
+      overlayRafRef.current = requestAnimationFrame(renderOverlay);
+    };
+
+    overlayRafRef.current = requestAnimationFrame(renderOverlay);
+
+    return () => {
+      cancelAnimationFrame(overlayRafRef.current);
+    };
+  }, [segmentedVideoUrl]);
 
   const processFrame = useCallback(async () => {
     if (!activeRef.current) return;
@@ -116,6 +203,7 @@ export default function CameraPanel({ onPose }: Props) {
         Your Move
       </div>
 
+      {/* Webcam video */}
       <video
         ref={videoRef}
         playsInline
@@ -123,10 +211,29 @@ export default function CameraPanel({ onPose }: Props) {
         className="w-full h-full object-cover"
         style={{ transform: "scaleX(-1)" }}
       />
+
+      {/* Skeleton overlay canvas */}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none"
       />
+
+      {/* Segmented outline overlay canvas */}
+      <canvas
+        ref={overlayCanvasRef}
+        className="absolute inset-0 w-full h-full pointer-events-none"
+        style={{ opacity: 0.7 }}
+      />
+
+      {/* Hidden overlay video for segmented mask */}
+      {segmentedVideoUrl && (
+        <video
+          ref={overlayVideoRef}
+          playsInline
+          muted
+          className="hidden"
+        />
+      )}
 
       {/* Live indicator */}
       <div className="absolute top-2 right-3 z-10 flex items-center gap-2 bg-black/70 px-2.5 py-1 border border-neon-red/30 rounded-sm">

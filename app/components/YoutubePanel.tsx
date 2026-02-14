@@ -4,6 +4,7 @@ import { forwardRef, useImperativeHandle, useRef } from "react";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
+type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailable";
 
 export type YoutubePanelHandle = {
   getCurrentTime: () => number;
@@ -17,6 +18,8 @@ type Props = {
   downloadError: string | null;
   extractionStatus: ExtractionStatus;
   extractionProgress: number;
+  segmentationStatus?: SegmentationStatus;
+  segmentationProgress?: number;
 };
 
 function HudCorners({ color = "neon-cyan" }: { color?: string }) {
@@ -50,6 +53,8 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
     downloadError,
     extractionStatus,
     extractionProgress,
+    segmentationStatus,
+    segmentationProgress,
   },
   ref
 ) {
@@ -168,6 +173,30 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
         autoPlay
         className="absolute inset-0 w-full h-full object-contain"
       />
+
+      {/* Segmentation status badge */}
+      {segmentationStatus === "segmenting" && (
+        <div className="absolute bottom-2 right-3 z-10 flex items-center gap-2 bg-black/80 px-2.5 py-1 border border-neon-green/30 rounded-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-live-dot" />
+          <span
+            className="text-[9px] tracking-[0.15em] text-neon-green/80 uppercase"
+            style={{ fontFamily: "var(--font-audiowide)" }}
+          >
+            Segmenting {segmentationProgress ? `${Math.round(segmentationProgress)}%` : ""}
+          </span>
+        </div>
+      )}
+      {segmentationStatus === "done" && (
+        <div className="absolute bottom-2 right-3 z-10 flex items-center gap-2 bg-black/80 px-2.5 py-1 border border-neon-green/30 rounded-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-neon-green" />
+          <span
+            className="text-[9px] tracking-[0.15em] text-neon-green/80 uppercase"
+            style={{ fontFamily: "var(--font-audiowide)" }}
+          >
+            Segmented
+          </span>
+        </div>
+      )}
     </div>
   );
 });
