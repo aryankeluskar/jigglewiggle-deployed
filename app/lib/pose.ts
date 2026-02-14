@@ -13,9 +13,15 @@ export type PoseResults = {
   poseLandmarks?: NormalizedLandmark[];
 };
 
+// Virtual landmark index for the synthetic neck (midpoint of shoulders 11 & 12)
+export const NECK_INDEX = 33;
+
 // MediaPipe Pose connections (pairs of landmark indices)
+// 0 = nose, 33 = synthetic neck midpoint between shoulders
 export const POSE_CONNECTIONS: [number, number][] = [
-  [11, 12],
+  [0, NECK_INDEX],
+  [NECK_INDEX, 11],
+  [NECK_INDEX, 12],
   [11, 13],
   [13, 15],
   [12, 14],
@@ -69,14 +75,28 @@ export function drawSkeleton(
 
   const xPos = (x: number) => (mirror ? (1 - x) * width : x * width);
 
+  // Synthesize a neck landmark as midpoint of shoulders (11 & 12)
+  const lmWithNeck = [...landmarks];
+  const lShoulder = landmarks[11];
+  const rShoulder = landmarks[12];
+  if (lShoulder && rShoulder) {
+    const minVis = Math.min(lShoulder.visibility ?? 0, rShoulder.visibility ?? 0);
+    lmWithNeck[NECK_INDEX] = {
+      x: (lShoulder.x + rShoulder.x) / 2,
+      y: (lShoulder.y + rShoulder.y) / 2,
+      z: (lShoulder.z + rShoulder.z) / 2,
+      visibility: minVis,
+    };
+  }
+
   // Draw connections
   const connColors = style?.connectionColors;
   ctx.lineWidth = lineWidth;
   ctx.lineCap = "round";
 
   for (const [a, b] of POSE_CONNECTIONS) {
-    const la = landmarks[a];
-    const lb = landmarks[b];
+    const la = lmWithNeck[a];
+    const lb = lmWithNeck[b];
     if (!la || !lb) continue;
     if ((la.visibility ?? 0) < 0.3 || (lb.visibility ?? 0) < 0.3) continue;
 
@@ -87,10 +107,11 @@ export function drawSkeleton(
     ctx.stroke();
   }
 
-  // Draw keypoints
+  // Draw keypoints: nose (0), neck (33), body (11+)
   ctx.fillStyle = fillColor;
-  for (let i = 11; i < landmarks.length; i++) {
-    const lm = landmarks[i];
+  const keypointIndices = [0, NECK_INDEX, ...Array.from({ length: landmarks.length - 11 }, (_, i) => i + 11)];
+  for (const i of keypointIndices) {
+    const lm = lmWithNeck[i];
     if (!lm || (lm.visibility ?? 0) < 0.3) continue;
     ctx.beginPath();
     ctx.arc(xPos(lm.x), lm.y * height, pointRadius, 0, 2 * Math.PI);
