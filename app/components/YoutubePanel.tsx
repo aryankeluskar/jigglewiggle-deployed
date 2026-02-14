@@ -54,12 +54,12 @@ export default function YoutubePanel({
   }
 
   return (
-    <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black">
+    <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black">
       <video
         src={`/api/video/${videoId}`}
         controls
         autoPlay
-        className="w-full h-full object-contain"
+        className="absolute inset-0 w-full h-full object-contain"
       />
     </div>
   );

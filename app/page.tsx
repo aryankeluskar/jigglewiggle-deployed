@@ -133,7 +133,7 @@ export default function Home() {
       {/* Main split screen */}
       <main className="flex-1 flex gap-4 p-4 min-h-0">
         {/* Left — YouTube */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 min-h-0">
           <YoutubePanel
             videoId={videoId}
             downloadStatus={downloadStatus}
