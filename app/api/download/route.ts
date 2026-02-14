@@ -3,7 +3,7 @@ import { spawn } from "child_process";
 import { mkdir, access } from "fs/promises";
 import path from "path";
 
-const VIDEO_DIR = "/tmp/stealthismove";
+const VIDEO_DIR = "/tmp/jigglewiggle";
 
 export async function POST(request: NextRequest) {
   const { videoId } = (await request.json()) as { videoId: string };

@@ -1,26 +1,533 @@
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════════
+   NEON DANCE ARENA — Theme System
+   LOUD. REACTIVE. CELEBRATORY.
+   ══════════════════════════════════════════════ */
+
 :root {
-  --background: #030712;
-  --foreground: #f9fafb;
+  --arena-bg: #050508;
+  --neon-magenta: #ff00aa;
+  --neon-cyan: #00ffff;
+  --neon-violet: #b829ff;
+  --neon-green: #39ff14;
+  --neon-yellow: #ffe100;
+  --neon-red: #ff003c;
+  --neon-pink: #ff2d95;
+  --panel-bg: rgba(8, 8, 20, 0.8);
+  --panel-border: rgba(0, 255, 255, 0.12);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: #050508;
+  --color-foreground: #e0e0ff;
+  --color-neon-magenta: #ff00aa;
+  --color-neon-cyan: #00ffff;
+  --color-neon-violet: #b829ff;
+  --color-neon-green: #39ff14;
+  --color-neon-yellow: #ffe100;
+  --color-neon-red: #ff003c;
+  --color-neon-pink: #ff2d95;
+  --color-panel: rgba(8, 8, 20, 0.8);
+  --font-display: var(--font-audiowide);
+  --font-body: var(--font-chakra-petch);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #050508;
+  color: #e0e0ff;
 }
 
-/* Full-height layout; allow scroll when content overflows */
-html,
-body {
+html, body {
   min-height: 100%;
   margin: 0;
 }
+
+/* ═══ ARENA ATMOSPHERE ═══ */
+
+.arena {
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(184, 41, 255, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 110%, rgba(255, 0, 170, 0.15) 0%, transparent 40%),
+    radial-gradient(ellipse at 15% 110%, rgba(0, 255, 255, 0.1) 0%, transparent 40%),
+    #050508;
+  position: relative;
+}
+
+/* Perspective grid — more visible */
+.arena::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 50px 50px;
+  mask-image: linear-gradient(to bottom, transparent 5%, black 25%, black 75%, transparent 95%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scanlines */
+.arena::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.02) 2px,
+    rgba(0, 0, 0, 0.02) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ═══ FLOATING LIGHT ORBS ═══ */
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(184, 41, 255, 0.3), transparent 70%);
+  top: -150px;
+  left: 15%;
+  animation: float-orb-1 12s ease-in-out infinite;
+}
+
+.orb-2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(255, 0, 170, 0.25), transparent 70%);
+  bottom: -100px;
+  right: 10%;
+  animation: float-orb-2 16s ease-in-out infinite;
+}
+
+.orb-3 {
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, rgba(0, 255, 255, 0.2), transparent 70%);
+  top: 40%;
+  left: -150px;
+  animation: float-orb-3 14s ease-in-out infinite;
+}
+
+@keyframes float-orb-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(60px, 40px) scale(1.15); }
+  66% { transform: translate(-40px, -20px) scale(0.9); }
+}
+
+@keyframes float-orb-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-50px, -40px) scale(1.2); }
+}
+
+@keyframes float-orb-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40% { transform: translate(40px, -30px) scale(1.1); }
+  70% { transform: translate(-20px, 20px) scale(0.95); }
+}
+
+/* ═══ SCORE AURA — Full-screen reactive glow ═══ */
+
+.score-aura {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  transition: box-shadow 0.8s ease;
+}
+
+.score-aura-idle {
+  box-shadow: inset 0 0 60px rgba(0, 255, 255, 0.03);
+}
+
+.score-aura-low {
+  box-shadow: inset 0 0 80px rgba(255, 0, 60, 0.08);
+}
+
+.score-aura-mid {
+  box-shadow:
+    inset 0 0 80px rgba(255, 225, 0, 0.1),
+    inset 0 0 150px rgba(255, 225, 0, 0.04);
+}
+
+.score-aura-high {
+  box-shadow:
+    inset 0 0 80px rgba(57, 255, 20, 0.12),
+    inset 0 0 160px rgba(57, 255, 20, 0.06),
+    inset 0 0 300px rgba(57, 255, 20, 0.03);
+  animation: aura-pulse-high 1.5s ease-in-out infinite;
+}
+
+.score-aura-perfect {
+  box-shadow:
+    inset 0 0 100px rgba(57, 255, 20, 0.2),
+    inset 0 0 200px rgba(57, 255, 20, 0.1),
+    inset 0 0 400px rgba(0, 255, 170, 0.05);
+  animation: aura-pulse-perfect 1s ease-in-out infinite;
+}
+
+@keyframes aura-pulse-high {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes aura-pulse-perfect {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ═══ CELEBRATION OVERLAY ═══ */
+
+.celebration-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 200;
+  animation: celebration-flash 2s ease-out forwards;
+}
+
+.celebration-text {
+  font-size: clamp(4rem, 10vw, 8rem);
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  animation: celebration-text-pop 2s ease-out forwards;
+}
+
+.celebration-text-perfect {
+  color: #39ff14;
+  text-shadow:
+    0 0 20px rgba(57, 255, 20, 1),
+    0 0 40px rgba(57, 255, 20, 0.8),
+    0 0 80px rgba(57, 255, 20, 0.5),
+    0 0 150px rgba(57, 255, 20, 0.3),
+    0 0 250px rgba(57, 255, 20, 0.15);
+}
+
+.celebration-text-fire {
+  color: #ffe100;
+  text-shadow:
+    0 0 20px rgba(255, 225, 0, 1),
+    0 0 40px rgba(255, 225, 0, 0.8),
+    0 0 80px rgba(255, 225, 0, 0.5),
+    0 0 150px rgba(255, 225, 0, 0.3);
+}
+
+@keyframes celebration-flash {
+  0% { background: rgba(57, 255, 20, 0.1); }
+  20% { background: rgba(57, 255, 20, 0.05); }
+  100% { background: transparent; opacity: 0; }
+}
+
+@keyframes celebration-text-pop {
+  0% { opacity: 0; transform: scale(0.3) rotate(-5deg); filter: blur(10px); }
+  15% { opacity: 1; transform: scale(1.3) rotate(2deg); filter: blur(0); }
+  30% { transform: scale(1) rotate(0deg); }
+  70% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.8) translateY(-30px); }
+}
+
+/* ═══ NEON TEXT EFFECTS — CRANKED ═══ */
+
+.neon-title {
+  color: var(--neon-magenta);
+  text-shadow:
+    0 0 7px rgba(255, 0, 170, 1),
+    0 0 20px rgba(255, 0, 170, 0.8),
+    0 0 40px rgba(255, 0, 170, 0.5),
+    0 0 80px rgba(255, 0, 170, 0.3),
+    0 0 120px rgba(255, 0, 170, 0.15);
+}
+
+.neon-text-cyan {
+  color: var(--neon-cyan);
+  text-shadow:
+    0 0 7px rgba(0, 255, 255, 0.9),
+    0 0 20px rgba(0, 255, 255, 0.5),
+    0 0 40px rgba(0, 255, 255, 0.25);
+}
+
+.neon-text-green {
+  color: var(--neon-green);
+  text-shadow:
+    0 0 10px rgba(57, 255, 20, 1),
+    0 0 25px rgba(57, 255, 20, 0.6),
+    0 0 50px rgba(57, 255, 20, 0.3),
+    0 0 100px rgba(57, 255, 20, 0.15);
+}
+
+.neon-text-yellow {
+  color: var(--neon-yellow);
+  text-shadow:
+    0 0 10px rgba(255, 225, 0, 1),
+    0 0 25px rgba(255, 225, 0, 0.6),
+    0 0 50px rgba(255, 225, 0, 0.3);
+}
+
+.neon-text-red {
+  color: var(--neon-red);
+  text-shadow:
+    0 0 10px rgba(255, 0, 60, 1),
+    0 0 25px rgba(255, 0, 60, 0.6),
+    0 0 50px rgba(255, 0, 60, 0.3);
+}
+
+.neon-text-violet {
+  color: var(--neon-violet);
+  text-shadow:
+    0 0 10px rgba(184, 41, 255, 0.9),
+    0 0 25px rgba(184, 41, 255, 0.5),
+    0 0 50px rgba(184, 41, 255, 0.25);
+}
+
+/* ═══ GLOW BOX SHADOWS — CRANKED ═══ */
+
+.glow-cyan {
+  box-shadow:
+    0 0 8px rgba(0, 255, 255, 0.4),
+    0 0 20px rgba(0, 255, 255, 0.2),
+    0 0 50px rgba(0, 255, 255, 0.1),
+    inset 0 0 15px rgba(0, 255, 255, 0.05);
+}
+
+.glow-magenta {
+  box-shadow:
+    0 0 8px rgba(255, 0, 170, 0.4),
+    0 0 20px rgba(255, 0, 170, 0.2),
+    0 0 50px rgba(255, 0, 170, 0.1),
+    inset 0 0 15px rgba(255, 0, 170, 0.05);
+}
+
+.glow-green {
+  box-shadow:
+    0 0 8px rgba(57, 255, 20, 0.5),
+    0 0 20px rgba(57, 255, 20, 0.25),
+    0 0 50px rgba(57, 255, 20, 0.12);
+}
+
+.glow-green-strong {
+  box-shadow:
+    0 0 10px rgba(57, 255, 20, 0.6),
+    0 0 30px rgba(57, 255, 20, 0.35),
+    0 0 60px rgba(57, 255, 20, 0.15),
+    0 0 120px rgba(57, 255, 20, 0.08),
+    inset 0 0 20px rgba(57, 255, 20, 0.05);
+}
+
+.glow-yellow {
+  box-shadow:
+    0 0 8px rgba(255, 225, 0, 0.5),
+    0 0 20px rgba(255, 225, 0, 0.25),
+    0 0 50px rgba(255, 225, 0, 0.12);
+}
+
+.glow-yellow-strong {
+  box-shadow:
+    0 0 10px rgba(255, 225, 0, 0.6),
+    0 0 30px rgba(255, 225, 0, 0.3),
+    0 0 60px rgba(255, 225, 0, 0.12),
+    inset 0 0 20px rgba(255, 225, 0, 0.05);
+}
+
+.glow-red {
+  box-shadow:
+    0 0 8px rgba(255, 0, 60, 0.5),
+    0 0 20px rgba(255, 0, 60, 0.25),
+    0 0 50px rgba(255, 0, 60, 0.12);
+}
+
+.glow-violet {
+  box-shadow:
+    0 0 8px rgba(184, 41, 255, 0.5),
+    0 0 20px rgba(184, 41, 255, 0.25),
+    0 0 50px rgba(184, 41, 255, 0.12);
+}
+
+/* ═══ ANIMATIONS — INTENSE ═══ */
+
+@keyframes neon-flicker {
+  0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; }
+  20%, 24%, 55% { opacity: 0.4; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 1; filter: brightness(1); }
+  50% { opacity: 0.8; filter: brightness(1.3); }
+}
+
+@keyframes score-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes score-pulse-intense {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.12); filter: brightness(1.3); }
+}
+
+@keyframes progress-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes live-dot {
+  0%, 100% {
+    box-shadow: 0 0 4px #ff003c, 0 0 10px #ff003c;
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 8px #ff003c, 0 0 20px #ff003c, 0 0 35px rgba(255, 0, 60, 0.4);
+    transform: scale(1.3);
+  }
+}
+
+@keyframes card-active-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(255, 0, 170, 0.5), 0 0 25px rgba(255, 0, 170, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 0, 170, 0.7), 0 0 45px rgba(255, 0, 170, 0.35), 0 0 70px rgba(255, 0, 170, 0.15);
+  }
+}
+
+@keyframes border-breathe {
+  0%, 100% { border-color: rgba(0, 255, 255, 0.15); }
+  50% { border-color: rgba(0, 255, 255, 0.35); }
+}
+
+@keyframes neon-divider-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes score-ring-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes score-label-bounce {
+  0% { transform: scale(0.5); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Camera border reactive glow */
+@keyframes camera-glow-green {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(57, 255, 20, 0.3), 0 0 30px rgba(57, 255, 20, 0.15), 0 0 60px rgba(57, 255, 20, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(57, 255, 20, 0.5), 0 0 40px rgba(57, 255, 20, 0.25), 0 0 80px rgba(57, 255, 20, 0.12);
+  }
+}
+
+@keyframes camera-glow-yellow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(255, 225, 0, 0.25), 0 0 20px rgba(255, 225, 0, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(255, 225, 0, 0.4), 0 0 30px rgba(255, 225, 0, 0.2);
+  }
+}
+
+.animate-flicker { animation: neon-flicker 4s ease-in-out infinite; }
+.animate-glow-pulse { animation: glow-pulse 2s ease-in-out infinite; }
+.animate-score-pulse { animation: score-pulse 1.5s ease-in-out infinite; }
+.animate-score-pulse-intense { animation: score-pulse-intense 1s ease-in-out infinite; }
+.animate-live-dot { animation: live-dot 1.2s ease-in-out infinite; }
+.animate-card-glow { animation: card-active-glow 1.5s ease-in-out infinite; }
+.animate-border-breathe { animation: border-breathe 2.5s ease-in-out infinite; }
+.animate-divider-pulse { animation: neon-divider-pulse 3s ease-in-out infinite; }
+.animate-camera-green { animation: camera-glow-green 1.5s ease-in-out infinite; }
+.animate-camera-yellow { animation: camera-glow-yellow 2s ease-in-out infinite; }
+
+/* Neon progress bar */
+.neon-progress {
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta), var(--neon-violet), var(--neon-cyan));
+  background-size: 200% 100%;
+  animation: progress-flow 1.5s linear infinite;
+  box-shadow: 0 0 12px rgba(0, 255, 255, 0.5), 0 0 25px rgba(0, 255, 255, 0.2);
+}
+
+/* ═══ NEON DIVIDER — animated ═══ */
+
+.neon-divider {
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(0, 255, 255, 0.4) 15%,
+    rgba(255, 0, 170, 0.6) 50%,
+    rgba(184, 41, 255, 0.4) 85%,
+    transparent 100%
+  );
+  animation: neon-divider-pulse 3s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(255, 0, 170, 0.3), 0 1px 15px rgba(255, 0, 170, 0.15);
+}
+
+/* ═══ FORM INPUTS ═══ */
+
+.neon-input {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  color: rgba(0, 255, 255, 0.9);
+  caret-color: #00ffff;
+  transition: all 0.2s ease;
+}
+
+.neon-input::placeholder {
+  color: rgba(0, 255, 255, 0.2);
+  font-style: italic;
+}
+
+.neon-input:focus {
+  border-color: rgba(0, 255, 255, 0.6);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.15), 0 0 30px rgba(0, 255, 255, 0.05), inset 0 0 10px rgba(0, 255, 255, 0.03);
+  outline: none;
+}
+
+/* ═══ NEON BUTTON ═══ */
+
+.neon-btn {
+  background: linear-gradient(135deg, rgba(255, 0, 170, 0.2), rgba(184, 41, 255, 0.2));
+  border: 1px solid rgba(255, 0, 170, 0.5);
+  color: var(--neon-magenta);
+  text-shadow: 0 0 10px rgba(255, 0, 170, 0.6);
+  box-shadow: 0 0 10px rgba(255, 0, 170, 0.15), 0 0 25px rgba(255, 0, 170, 0.05);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.neon-btn:hover {
+  background: linear-gradient(135deg, rgba(255, 0, 170, 0.3), rgba(184, 41, 255, 0.3));
+  box-shadow: 0 0 20px rgba(255, 0, 170, 0.35), 0 0 50px rgba(255, 0, 170, 0.15);
+  border-color: rgba(255, 0, 170, 0.7);
+  transform: translateY(-1px);
+}
+
+/* ═══ SCORE LABEL ═══ */
+
+.score-label {
+  animation: score-label-bounce 0.4s ease-out;
+}
+
+/* ═══ SCROLLBAR ═══ */
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 255, 255, 0.2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 255, 0.4); }

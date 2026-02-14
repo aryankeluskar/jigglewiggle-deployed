@@ -1,37 +1,61 @@
 /**
- * Web Speech API wrapper for the audio coach.
+ * OpenAI TTS audio playback for the dance coach.
  * SHARED MODULE — used by both the YouTube app and the Zoom app.
  */
 
 let isSpeaking = false;
+let muted = false;
+let currentAudio: HTMLAudioElement | null = null;
 
-export function speak(text: string): void {
+export function isMuted(): boolean {
+  return muted;
+}
+
+export function setMuted(value: boolean): void {
+  muted = value;
+  if (value) cancelSpeech();
+}
+
+export function speak(audioBase64: string): void {
   if (typeof window === "undefined") return;
-  if (!("speechSynthesis" in window)) return;
-  if (isSpeaking) return;
+  if (isSpeaking || muted) return;
 
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.1;
-  utterance.pitch = 1.0;
-  utterance.volume = 0.9;
+  const blob = new Blob(
+    [Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0))],
+    { type: "audio/mpeg" }
+  );
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
 
-  utterance.onstart = () => {
-    isSpeaking = true;
-  };
-  utterance.onend = () => {
+  isSpeaking = true;
+  currentAudio = audio;
+
+  audio.onended = () => {
     isSpeaking = false;
+    currentAudio = null;
+    URL.revokeObjectURL(url);
   };
-  utterance.onerror = () => {
+  audio.onerror = () => {
     isSpeaking = false;
+    currentAudio = null;
+    URL.revokeObjectURL(url);
   };
 
-  window.speechSynthesis.speak(utterance);
+  audio.play().catch(() => {
+    isSpeaking = false;
+    currentAudio = null;
+    URL.revokeObjectURL(url);
+  });
+}
+
+export function isSpeechPlaying(): boolean {
+  return isSpeaking;
 }
 
 export function cancelSpeech(): void {
-  if (typeof window === "undefined") return;
-  if ("speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-    isSpeaking = false;
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
   }
+  isSpeaking = false;
 }

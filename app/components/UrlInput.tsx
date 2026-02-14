@@ -16,17 +16,27 @@ export default function UrlInput({ onSubmit, initialUrl = "" }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 w-full max-w-2xl mx-auto">
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Paste a YouTube URL…"
-        className="flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/40 outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all text-sm"
-      />
+    <form onSubmit={handleSubmit} className="flex gap-2 w-full max-w-2xl mx-auto items-center">
+      <div className="flex-1 relative">
+        <span
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] tracking-widest uppercase text-neon-cyan/35"
+          style={{ fontFamily: "var(--font-audiowide)" }}
+        >
+          URL
+        </span>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="paste youtube url..."
+          className="neon-input w-full pl-14 pr-4 py-2.5 rounded-none text-sm tracking-wide"
+          style={{ fontFamily: "var(--font-chakra-petch)" }}
+        />
+      </div>
       <button
         type="submit"
-        className="px-6 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-violet-500 text-white font-semibold text-sm hover:opacity-90 transition-opacity cursor-pointer"
+        className="neon-btn px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.15em] rounded-none"
+        style={{ fontFamily: "var(--font-audiowide)" }}
       >
         Load
       </button>

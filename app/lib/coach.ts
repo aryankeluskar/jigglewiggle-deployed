@@ -8,3 +8,4 @@ export {
   heyGenCoachAvatar,
   modalSegmentationModel,
 } from "../shared/coach";
+export type { CoachResult } from "../shared/coach";

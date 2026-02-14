@@ -1,5 +1,5 @@
 /**
- * Steal This Move — Chrome Extension Background Service Worker
+ * Jiggle Wiggle — Chrome Extension Background Service Worker
  *
  * When the toolbar button is clicked on a YouTube page,
  * open the web app in a new tab and pass the YouTube URL.

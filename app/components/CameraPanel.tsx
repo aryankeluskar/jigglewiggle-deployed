@@ -8,6 +8,16 @@ type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
 };
 
+const NEON_SKELETON_STYLE = {
+  mirror: true,
+  strokeColor: "#00ffff",
+  fillColor: "#ff00aa",
+  lineWidth: 3,
+  pointRadius: 5,
+  opacity: 1,
+  clear: true,
+} as const;
+
 export default function CameraPanel({ onPose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,7 +74,7 @@ export default function CameraPanel({ onPose }: Props) {
             if (ctx) {
               canvas.width = canvas.offsetWidth;
               canvas.height = canvas.offsetHeight;
-              drawSkeleton(ctx, landmarks, canvas.width, canvas.height);
+              drawSkeleton(ctx, landmarks, canvas.width, canvas.height, NEON_SKELETON_STYLE);
             }
           } else if (canvas) {
             const ctx = canvas.getContext("2d");
@@ -91,7 +101,21 @@ export default function CameraPanel({ onPose }: Props) {
   }, [onPose, processFrame]);
 
   return (
-    <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black">
+    <div className="relative w-full h-full rounded overflow-hidden border border-neon-magenta/15 bg-black glow-magenta">
+      {/* HUD corners — magenta theme for camera */}
+      <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-neon-magenta/50 z-10" />
+      <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-neon-magenta/50 z-10" />
+      <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-neon-magenta/50 z-10" />
+      <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-neon-magenta/50 z-10" />
+
+      {/* Panel label */}
+      <div
+        className="absolute top-2 left-3 z-10 text-[8px] tracking-[0.3em] uppercase text-neon-magenta/35"
+        style={{ fontFamily: "var(--font-audiowide)" }}
+      >
+        Your Move
+      </div>
+
       <video
         ref={videoRef}
         playsInline
@@ -103,9 +127,16 @@ export default function CameraPanel({ onPose }: Props) {
         ref={canvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none"
       />
-      <div className="absolute top-3 right-3 flex items-center gap-2 bg-black/60 px-3 py-1 rounded-full">
-        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-        <span className="text-xs text-white/70">LIVE</span>
+
+      {/* Live indicator */}
+      <div className="absolute top-2 right-3 z-10 flex items-center gap-2 bg-black/70 px-2.5 py-1 border border-neon-red/30 rounded-sm">
+        <span className="w-1.5 h-1.5 rounded-full bg-neon-red animate-live-dot" />
+        <span
+          className="text-[9px] tracking-[0.2em] text-neon-red/80 uppercase"
+          style={{ fontFamily: "var(--font-audiowide)" }}
+        >
+          Live
+        </span>
       </div>
     </div>
   );

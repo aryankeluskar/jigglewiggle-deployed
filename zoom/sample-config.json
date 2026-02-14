@@ -1,6 +1,6 @@
 {
   "_comment": "Sample Zoom App configuration — fill these values in the Zoom Marketplace developer portal",
-  "appName": "Steal This Move",
+  "appName": "Jiggle Wiggle",
   "shortDescription": "Real-time AI dance coaching inside Zoom meetings",
   "appType": "Zoom Apps",
   "homeUrl": "https://YOUR_TUNNEL_URL/zoom",

@@ -88,7 +88,23 @@ export async function POST(req: NextRequest) {
     const message =
       completion.choices[0]?.message?.content?.trim() ?? "Keep moving!";
 
-    return NextResponse.json({ message });
+    // Generate speech audio via OpenAI TTS
+    let audio: string | undefined;
+    try {
+      const ttsRes = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: "nova",
+        input: message,
+        response_format: "mp3",
+        speed: 1.1,
+      });
+      const buf = Buffer.from(await ttsRes.arrayBuffer());
+      audio = buf.toString("base64");
+    } catch (ttsErr) {
+      console.error("TTS error (falling back to text only):", ttsErr);
+    }
+
+    return NextResponse.json({ message, audio });
   } catch (err) {
     console.error("Coach API error:", err);
     return NextResponse.json(

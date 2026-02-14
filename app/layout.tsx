@@ -1,19 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Audiowide, Chakra_Petch } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const audiowide = Audiowide({
+  weight: "400",
+  variable: "--font-audiowide",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const chakraPetch = Chakra_Petch({
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-chakra-petch",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "Steal This Move",
+  title: "Jiggle Wiggle",
   description: "Learn dance moves from YouTube videos with real-time AI coaching",
 };
 
@@ -25,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${audiowide.variable} ${chakraPetch.variable} antialiased`}
       >
         {children}
       </body>

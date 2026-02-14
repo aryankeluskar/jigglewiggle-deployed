@@ -1,6 +1,6 @@
 # Zoom App Configuration
 
-This folder contains documentation for setting up **Steal This Move** as a Zoom App.
+This folder contains documentation for setting up **Jiggle Wiggle** as a Zoom App.
 
 ## How It Works
 
@@ -19,7 +19,7 @@ No YouTube panel — the Zoom version is focused on the camera + coach experienc
 2. Click **Develop** → **Build App**
 3. Choose **Zoom Apps** type
 4. Fill in basic info:
-   - **App Name:** Steal This Move
+   - **App Name:** Jiggle Wiggle
    - **Short Description:** Real-time dance coaching with AI
    - **Developer Name:** Your name
 
@@ -58,7 +58,7 @@ Copy the ngrok HTTPS URL and paste it into your Zoom App configuration.
 1. Open Zoom desktop client
 2. Join or start a meeting
 3. Click **Apps** in the toolbar
-4. Find **Steal This Move** and open it
+4. Find **Jiggle Wiggle** and open it
 5. Allow camera access
 6. Start dancing!
 

@@ -8,6 +8,7 @@
  */
 
 import type { PoseSummary } from "./scoring";
+import { isSpeechPlaying } from "./speech";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 const conversationHistory: ChatMessage[] = [];
@@ -19,13 +20,16 @@ let lastMessage = "";
 
 const MIN_INTERVAL_MS = 3000;
 
+export type CoachResult = { message: string; audio?: string };
+
 export async function getCoachMessage(
   summary: PoseSummary
-): Promise<string | null> {
+): Promise<CoachResult | null> {
   const now = Date.now();
 
   if (now - lastRequestTs < MIN_INTERVAL_MS) return null;
   if (pendingRequest) return null;
+  if (isSpeechPlaying()) return null;
   if (summary.score === 0 && lastMessage.includes("no pose")) return null;
 
   pendingRequest = true;
@@ -48,6 +52,7 @@ export async function getCoachMessage(
 
     const data = await res.json();
     const message: string = data.message ?? "Keep going!";
+    const audio: string | undefined = data.audio;
 
     if (message === lastMessage) {
       pendingRequest = false;
@@ -69,7 +74,7 @@ export async function getCoachMessage(
 
     lastMessage = message;
     pendingRequest = false;
-    return message;
+    return { message, audio };
   } catch (err) {
     console.error("Coach fetch error:", err);
     pendingRequest = false;

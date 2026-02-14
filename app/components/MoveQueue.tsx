@@ -19,8 +19,8 @@ const VISIBLE_CARDS = 7;
 
 const REF_STYLE = {
   mirror: false,
-  strokeColor: "#A78BFA",
-  fillColor: "#C4B5FD",
+  strokeColor: "#00ffff",
+  fillColor: "#0ef",
   lineWidth: 1.5,
   pointRadius: 2,
   opacity: 1,
@@ -42,7 +42,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
     return timeline.map((frame, idx) => ({
       idx,
       time: frame.time,
-      label: frame.landmarks.length > 0 ? classifyPose(frame.landmarks) : "—",
+      label: frame.landmarks.length > 0 ? classifyPose(frame.landmarks) : "\u2014",
     }));
   }, [timeline]);
 
@@ -59,7 +59,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
         drawSkeleton(ctx, landmarks, CARD_W, CARD_H, REF_STYLE);
       } else {
         ctx.clearRect(0, 0, CARD_W, CARD_H);
-        ctx.fillStyle = "rgba(255,255,255,0.1)";
+        ctx.fillStyle = "rgba(0, 255, 255, 0.1)";
         ctx.font = "10px sans-serif";
         ctx.textAlign = "center";
         ctx.fillText("No pose", CARD_W / 2, CARD_H / 2);
@@ -138,8 +138,8 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
 
             drawSkeleton(ctx, normLive, CARD_W, CARD_H, {
               mirror: true,
-              strokeColor: "#ffffff",
-              fillColor: "#ffffff",
+              strokeColor: "#ff00aa",
+              fillColor: "#ff2d95",
               lineWidth: 1.5,
               pointRadius: 1.5,
               opacity: 0.85,
@@ -196,7 +196,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
         {samples.map((sample, i) => {
           const isCurrent = i === currentSampleIdx;
           const isPast = i < currentSampleIdx;
-          const opacity = isCurrent ? 1 : isPast ? 0.4 : 0.6;
+          const opacity = isCurrent ? 1 : isPast ? 0.35 : 0.55;
 
           const mins = Math.floor(sample.time / 60);
           const secs = Math.floor(sample.time % 60);
@@ -204,16 +204,21 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
 
           // Performance border color for past cards
           const perfScore = cardScores.get(i);
-          let borderClass = "border-white/10";
+          let borderClass = "border-white/5";
+          let glowClass = "";
           if (isCurrent) {
-            borderClass = "border-pink-500 shadow-[0_0_12px_rgba(236,72,153,0.4)]";
+            borderClass = "border-neon-magenta/70 animate-card-glow";
           } else if (perfScore !== undefined) {
-            borderClass =
-              perfScore >= 80
-                ? "border-green-500/70"
-                : perfScore >= 50
-                  ? "border-yellow-500/70"
-                  : "border-red-500/70";
+            if (perfScore >= 80) {
+              borderClass = "border-neon-green/50";
+              glowClass = "glow-green";
+            } else if (perfScore >= 50) {
+              borderClass = "border-neon-yellow/50";
+              glowClass = "glow-yellow";
+            } else {
+              borderClass = "border-neon-red/50";
+              glowClass = "glow-red";
+            }
           }
 
           return (
@@ -224,13 +229,13 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
               onClick={() => handleCardClick(sample.time)}
             >
               <div
-                className={`rounded-lg border-2 transition-all duration-300 ${borderClass} ${
-                  isCurrent ? "scale-110" : "hover:scale-105 hover:border-white/30"
+                className={`rounded border-2 transition-all duration-300 ${borderClass} ${glowClass} ${
+                  isCurrent ? "scale-110" : "hover:scale-105 hover:border-neon-cyan/20"
                 }`}
                 style={{
                   width: CARD_W,
                   height: CARD_H,
-                  background: "rgba(0,0,0,0.6)",
+                  background: "rgba(5, 5, 15, 0.7)",
                   position: "relative",
                 }}
               >
@@ -256,30 +261,40 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
                   <div
                     style={{
                       position: "absolute",
-                      top: 2,
-                      right: 2,
+                      top: 3,
+                      right: 3,
                       fontSize: 9,
                       fontWeight: 700,
-                      padding: "1px 4px",
-                      borderRadius: 4,
+                      fontFamily: "var(--font-audiowide)",
+                      padding: "1px 5px",
+                      borderRadius: 2,
                       background:
                         matchScore >= 80
-                          ? "#22c55e"
+                          ? "rgba(57, 255, 20, 0.9)"
                           : matchScore >= 50
-                            ? "#eab308"
-                            : "#ef4444",
+                            ? "rgba(255, 225, 0, 0.9)"
+                            : "rgba(255, 0, 60, 0.9)",
                       color: "#000",
-                      lineHeight: 1.2,
+                      lineHeight: 1.3,
+                      boxShadow:
+                        matchScore >= 80
+                          ? "0 0 6px rgba(57, 255, 20, 0.5)"
+                          : matchScore >= 50
+                            ? "0 0 6px rgba(255, 225, 0, 0.5)"
+                            : "0 0 6px rgba(255, 0, 60, 0.5)",
                     }}
                   >
                     {matchScore}
                   </div>
                 )}
               </div>
-              <span className={`text-[10px] mt-1 ${isCurrent ? "text-pink-400" : "text-white/30"}`}>
+              <span
+                className={`text-[10px] mt-1 ${isCurrent ? "neon-text-cyan" : "text-white/25"}`}
+                style={{ fontFamily: "var(--font-audiowide)" }}
+              >
                 {timestamp}
               </span>
-              <span className={`text-[8px] leading-tight ${isCurrent ? "text-white/70" : "text-white/20"}`}>
+              <span className={`text-[8px] leading-tight ${isCurrent ? "text-neon-magenta/60" : "text-white/15"}`}>
                 {sample.label}
               </span>
             </div>

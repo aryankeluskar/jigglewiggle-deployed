@@ -20,7 +20,7 @@ export default function ZoomApp() {
   // Zoom state
   const [meetingNumber, setMeetingNumber] = useState("");
   const [passcode, setPasscode] = useState("");
-  const [userName, setUserName] = useState("StealThisMove");
+  const [userName, setUserName] = useState("JiggleWiggle");
   const [zoomState, setZoomState] = useState<ZoomState>("idle");
   const [zoomError, setZoomError] = useState("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -32,10 +32,10 @@ export default function ZoomApp() {
     setScore(frame.score);
 
     const summary = buildPoseSummary(landmarks, frame);
-    getCoachMessage(summary).then((msg) => {
-      if (msg) {
-        setCoachMsg(msg);
-        speak(msg);
+    getCoachMessage(summary).then((result) => {
+      if (result) {
+        setCoachMsg(result.message);
+        if (result.audio) speak(result.audio);
       }
     });
   };
@@ -105,7 +105,7 @@ export default function ZoomApp() {
         signature: sigData.signature,
         meetingNumber: meetingNumber.replace(/\s/g, ""),
         password: passcode,
-        userName: userName || "StealThisMove",
+        userName: userName || "JiggleWiggle",
       }, "*");
     } catch (err) {
       setZoomState("error");
@@ -121,7 +121,7 @@ export default function ZoomApp() {
         <div className="text-center">
           <h1 className="text-3xl font-bold mb-2">
             <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
-              Steal This Move
+              Jiggle Wiggle
             </span>
           </h1>
           <p className="text-white/40 text-sm">Zoom Mode — choose how to connect</p>
@@ -164,7 +164,7 @@ export default function ZoomApp() {
         <header className="flex-shrink-0 px-6 py-4 flex items-center border-b border-white/5">
           <button onClick={() => setMode("choose")} className="text-white/40 hover:text-white text-sm cursor-pointer mr-3">← Back</button>
           <h1 className="text-xl font-bold">
-            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Steal This Move</span>
+            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Jiggle Wiggle</span>
             <span className="text-white/30 text-sm ml-3 font-normal">Screen Capture</span>
           </h1>
         </header>
@@ -184,7 +184,7 @@ export default function ZoomApp() {
         <div className="flex items-center gap-3">
           <button onClick={() => setMode("choose")} className="text-white/40 hover:text-white text-sm cursor-pointer">← Back</button>
           <h1 className="text-xl font-bold">
-            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Steal This Move</span>
+            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Jiggle Wiggle</span>
             <span className="text-white/30 text-sm ml-3 font-normal">Zoom Meeting</span>
           </h1>
         </div>

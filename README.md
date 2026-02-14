@@ -1,4 +1,4 @@
-# Steal This Move 💃
+# Jiggle Wiggle 💃
 
 **Learn dance moves from YouTube with real-time AI pose coaching.**
 
@@ -28,7 +28,7 @@ Open [http://localhost:3000](http://localhost:3000).
 2. Enable **Developer mode** (top right)
 3. Click **Load unpacked**
 4. Select the `extension/` folder from this project
-5. Navigate to any YouTube video and click the **Steal This Move** toolbar button
+5. Navigate to any YouTube video and click the **Jiggle Wiggle** toolbar button
 
 ## 60-Second Demo Script
 

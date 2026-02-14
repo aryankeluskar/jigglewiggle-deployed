@@ -61,6 +61,22 @@ export default function Home() {
   const livePoseRef = useRef<NormalizedLandmark[] | null>(null);
   const stripPoseCacheRef = useRef<Map<string, StripPoseTimeline>>(new Map());
 
+  // Score aura class
+  const getAuraClass = () => {
+    if (score >= 90) return "score-aura score-aura-perfect";
+    if (score >= 80) return "score-aura score-aura-high";
+    if (score >= 50) return "score-aura score-aura-mid";
+    if (score > 0) return "score-aura score-aura-low";
+    return "score-aura score-aura-idle";
+  };
+
+  // Camera wrapper reactive glow
+  const getCameraGlow = () => {
+    if (score >= 80) return "rounded animate-camera-green";
+    if (score >= 50) return "rounded animate-camera-yellow";
+    return "rounded";
+  };
+
   const handleUrl = useCallback(async (url: string) => {
     const id = extractVideoId(url);
     if (!id) {
@@ -171,7 +187,6 @@ export default function Home() {
         writeStripPoseCache(videoId, timeline);
       })
       .catch(() => {
-        // Extraction failed — still allow video playback, just no move queue
         setExtractionStatus("done");
       });
   }, [downloadStatus, videoId, extractionStatus]);
@@ -198,12 +213,11 @@ export default function Home() {
     const frame = computeScore(landmarks);
     setScore(frame.score);
 
-    // Build the rich summary and send it to the LLM coach (async, fire-and-forget)
     const summary = buildPoseSummary(landmarks, frame);
-    getCoachMessage(summary).then((msg) => {
-      if (msg) {
-        setCoachMsg(msg);
-        speak(msg);
+    getCoachMessage(summary).then((result) => {
+      if (result) {
+        setCoachMsg(result.message);
+        if (result.audio) speak(result.audio);
       }
     });
   };
@@ -216,23 +230,57 @@ export default function Home() {
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white flex flex-col">
-      {/* Header */}
-      <header className="flex-shrink-0 px-6 py-4 flex items-center justify-between border-b border-white/5">
-        <h1 className="text-xl font-bold tracking-tight">
-          <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
-            Steal This Move
+    <div
+      className="h-screen overflow-hidden arena text-white flex flex-col"
+      style={{ fontFamily: "var(--font-chakra-petch, system-ui)" }}
+    >
+      {/* Floating ambient light orbs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="orb orb-1" />
+        <div className="orb orb-2" />
+        <div className="orb orb-3" />
+      </div>
+
+      {/* Score-reactive screen-edge aura */}
+      <div className={getAuraClass()} />
+
+
+      {/* Header — Neon Marquee */}
+      <header className="flex-shrink-0 px-6 py-3 flex items-center justify-between relative z-10">
+        <div className="flex items-center gap-4">
+          <h1
+            className="text-xl tracking-[0.2em] uppercase neon-title animate-flicker"
+            style={{ fontFamily: "var(--font-audiowide)" }}
+          >
+            Jiggle Wiggle
+          </h1>
+          <div className="h-5 w-px bg-neon-cyan/20" />
+          <span
+            className="text-[9px] tracking-[0.35em] uppercase neon-text-cyan opacity-40"
+            style={{ fontFamily: "var(--font-audiowide)" }}
+          >
+            Dance Arena
           </span>
-        </h1>
+        </div>
+
         <div className="flex-1 max-w-xl mx-8">
           <UrlInput onSubmit={handleUrl} />
         </div>
-        <div className="text-xs text-white/30">TreeHacks 2026</div>
+
+        <div
+          className="text-[9px] tracking-[0.2em] uppercase px-3 py-1.5 border border-neon-cyan/20 neon-text-cyan opacity-50"
+          style={{ fontFamily: "var(--font-audiowide)" }}
+        >
+          TreeHacks &apos;26
+        </div>
       </header>
 
-      {/* Main split screen */}
-      <main className="flex-1 flex gap-4 p-4 min-h-0">
-        {/* Left — YouTube */}
+      {/* Neon Divider */}
+      <div className="flex-shrink-0 neon-divider relative z-10" />
+
+      {/* Main Split Screen */}
+      <main className="flex-1 flex gap-3 p-3 min-h-0 relative z-10">
+        {/* Left — Reference Video */}
         <div className="flex-1 min-w-0 min-h-0">
           <YoutubePanel
             ref={youtubePanelRef}
@@ -245,15 +293,15 @@ export default function Home() {
           />
         </div>
 
-        {/* Right — Camera */}
-        <div className="flex-1 min-w-0">
+        {/* Right — Live Camera with score-reactive glow */}
+        <div className={`flex-1 min-w-0 transition-all duration-700 ${getCameraGlow()}`}>
           <CameraPanel onPose={handlePose} />
         </div>
       </main>
 
-      {/* Move queue strip */}
+      {/* Move Queue Strip */}
       {poseTimeline && poseTimeline.length > 0 && (
-        <div className="flex-shrink-0 px-4">
+        <div className="flex-shrink-0 px-3 relative z-10">
           <MoveQueue
             timeline={poseTimeline}
             currentTime={currentVideoTime}
@@ -263,8 +311,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* Bottom — Coach panel */}
-      <footer className="flex-shrink-0 px-4 pb-4">
+      {/* Coach Panel */}
+      <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
         <CoachPanel score={score} message={coachMsg} />
       </footer>
     </div>

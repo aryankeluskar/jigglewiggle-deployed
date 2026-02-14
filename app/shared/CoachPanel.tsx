@@ -1,11 +1,21 @@
 "use client";
 
+import { useState } from "react";
+import { isMuted, setMuted } from "./speech";
+
 type Props = {
   score: number;
   message: string;
 };
 
 export default function CoachPanel({ score, message }: Props) {
+  const [muted, _setMuted] = useState(isMuted());
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    _setMuted(next);
+  };
+
   const getScoreColor = () => {
     if (score >= 80) return "text-green-400";
     if (score >= 50) return "text-yellow-400";
@@ -53,6 +63,26 @@ export default function CoachPanel({ score, message }: Props) {
           />
         </div>
       </div>
+
+      <button
+        onClick={toggleMute}
+        className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white/50 hover:text-white/80 hover:bg-white/20 transition-colors"
+        title={muted ? "Unmute coach" : "Mute coach"}
+      >
+        {muted ? (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+            <path d="M11 5L6 9H2v6h4l5 4V5z" />
+            <line x1="23" y1="9" x2="17" y2="15" />
+            <line x1="17" y1="9" x2="23" y2="15" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+            <path d="M11 5L6 9H2v6h4l5 4V5z" />
+            <path d="M19.07 4.93a10 10 0 010 14.14" />
+            <path d="M15.54 8.46a5 5 0 010 7.07" />
+          </svg>
+        )}
+      </button>
     </div>
   );
 }
