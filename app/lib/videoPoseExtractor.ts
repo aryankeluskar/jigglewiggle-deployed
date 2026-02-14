@@ -15,14 +15,10 @@ export type StripPoseFrame = {
 
 export type StripPoseTimeline = StripPoseFrame[];
 
-/**
- * Extracts pose landmarks from a video at ~10fps by seeking through frames.
- * Runs client-side using the same MediaPipe Pose model as the webcam.
- */
-export async function extractPoses(
-  videoSrc: string,
-  onProgress: (percent: number) => void
-): Promise<PoseTimeline> {
+const MAX_EXTRACT_DIM = 320;
+
+/** Create a hidden video + aspect-ratio-matched canvas for extraction. */
+async function prepareExtractionElements(videoSrc: string) {
   const video = document.createElement("video");
   video.src = videoSrc;
   video.crossOrigin = "anonymous";
@@ -31,14 +27,6 @@ export async function extractPoses(
   video.style.display = "none";
   document.body.appendChild(video);
 
-  const canvas = document.createElement("canvas");
-  canvas.width = 320;
-  canvas.height = 240;
-  canvas.style.display = "none";
-  document.body.appendChild(canvas);
-  const ctx = canvas.getContext("2d")!;
-
-  // Wait for video metadata
   await new Promise<void>((resolve, reject) => {
     video.onloadedmetadata = () => resolve();
     video.onerror = () => reject(new Error("Failed to load video for pose extraction"));
@@ -47,13 +35,45 @@ export async function extractPoses(
 
   const duration = video.duration;
   if (!duration || !isFinite(duration)) {
-    cleanup();
+    video.remove();
     throw new Error("Video has no valid duration");
   }
 
-  // Load MediaPipe Pose
+  // Scale canvas to match video aspect ratio (max 320px on longest side)
+  const vw = video.videoWidth || 320;
+  const vh = video.videoHeight || 240;
+  const scale = Math.min(MAX_EXTRACT_DIM / vw, MAX_EXTRACT_DIM / vh);
+  const cw = Math.round(vw * scale);
+  const ch = Math.round(vh * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = cw;
+  canvas.height = ch;
+  canvas.style.display = "none";
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext("2d")!;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pose = (await loadPose()) as any;
+
+  const cleanup = () => {
+    video.remove();
+    canvas.remove();
+  };
+
+  return { video, canvas, ctx, pose, duration, cleanup };
+}
+
+/**
+ * Extracts pose landmarks from a video at ~10fps by seeking through frames.
+ * Runs client-side using the same MediaPipe Pose model as the webcam.
+ */
+export async function extractPoses(
+  videoSrc: string,
+  onProgress: (percent: number) => void
+): Promise<PoseTimeline> {
+  const { video, canvas, ctx, pose, duration, cleanup } =
+    await prepareExtractionElements(videoSrc);
 
   const timeline: PoseTimeline = [];
   const step = 0.1; // 10fps
@@ -91,11 +111,6 @@ export async function extractPoses(
   onProgress(100);
   cleanup();
   return timeline;
-
-  function cleanup() {
-    video.remove();
-    canvas.remove();
-  }
 }
 
 /**
@@ -107,35 +122,8 @@ export async function extractStripPoses(
   onProgress: (percent: number) => void,
   intervalSeconds = 2
 ): Promise<StripPoseTimeline> {
-  const video = document.createElement("video");
-  video.src = videoSrc;
-  video.crossOrigin = "anonymous";
-  video.muted = true;
-  video.playsInline = true;
-  video.style.display = "none";
-  document.body.appendChild(video);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = 320;
-  canvas.height = 240;
-  canvas.style.display = "none";
-  document.body.appendChild(canvas);
-  const ctx = canvas.getContext("2d")!;
-
-  await new Promise<void>((resolve, reject) => {
-    video.onloadedmetadata = () => resolve();
-    video.onerror = () => reject(new Error("Failed to load video for pose extraction"));
-    video.load();
-  });
-
-  const duration = video.duration;
-  if (!duration || !isFinite(duration)) {
-    cleanup();
-    throw new Error("Video has no valid duration");
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pose = (await loadPose()) as any;
+  const { video, canvas, ctx, pose, duration, cleanup } =
+    await prepareExtractionElements(videoSrc);
 
   const timeline: StripPoseTimeline = [];
 
@@ -164,12 +152,43 @@ export async function extractStripPoses(
     onProgress((t / duration) * 100);
   }
 
+  const densifiedTimeline = fillMissingStripLandmarks(timeline);
+
   onProgress(100);
   cleanup();
-  return timeline;
+  return densifiedTimeline;
+}
 
-  function cleanup() {
-    video.remove();
-    canvas.remove();
+function fillMissingStripLandmarks(timeline: StripPoseTimeline): StripPoseTimeline {
+  if (timeline.length === 0) return timeline;
+
+  const nextValidIdx: number[] = Array(timeline.length).fill(-1);
+  let next = -1;
+  for (let i = timeline.length - 1; i >= 0; i -= 1) {
+    if (timeline[i].landmarks.length > 0) next = i;
+    nextValidIdx[i] = next;
   }
+
+  let prev = -1;
+  return timeline.map((frame, i) => {
+    if (frame.landmarks.length > 0) {
+      prev = i;
+      return frame;
+    }
+
+    const nextIdx = nextValidIdx[i];
+    if (prev === -1 && nextIdx === -1) return frame;
+
+    if (prev === -1) {
+      return { ...frame, landmarks: [...timeline[nextIdx].landmarks] };
+    }
+    if (nextIdx === -1) {
+      return { ...frame, landmarks: [...timeline[prev].landmarks] };
+    }
+
+    const prevDelta = Math.abs(frame.time - timeline[prev].time);
+    const nextDelta = Math.abs(timeline[nextIdx].time - frame.time);
+    const source = prevDelta <= nextDelta ? timeline[prev] : timeline[nextIdx];
+    return { ...frame, landmarks: [...source.landmarks] };
+  });
 }

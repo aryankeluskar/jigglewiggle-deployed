@@ -18,7 +18,7 @@ import type { NormalizedLandmark } from "./lib/pose";
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
 
-const STRIP_POSE_CACHE_VERSION = 1;
+const STRIP_POSE_CACHE_VERSION = 3;
 const STRIP_POSE_INTERVAL_SECONDS = 2;
 
 function stripPoseCacheKey(videoId: string) {
