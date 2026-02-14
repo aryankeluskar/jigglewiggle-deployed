@@ -17,7 +17,10 @@ export type PoseResults = {
 };
 
 // MediaPipe Pose connections (pairs of landmark indices)
+// 0 = nose (head tracking point), connected to both shoulders
 export const POSE_CONNECTIONS: [number, number][] = [
+  [0, 11],
+  [0, 12],
   [11, 12],
   [11, 13],
   [13, 15],
@@ -65,9 +68,10 @@ export function drawSkeleton(
     ctx.stroke();
   }
 
-  // Draw keypoints
+  // Draw keypoints (landmark 0 = nose/head, then 11+ = body)
   ctx.fillStyle = "#FF4488";
-  for (let i = 11; i < landmarks.length; i++) {
+  const keypointIndices = [0, ...Array.from({ length: landmarks.length - 11 }, (_, i) => i + 11)];
+  for (const i of keypointIndices) {
     const lm = landmarks[i];
     if (!lm || (lm.visibility ?? 0) < 0.3) continue;
     ctx.beginPath();
