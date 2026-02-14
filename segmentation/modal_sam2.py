@@ -26,9 +26,10 @@ app = modal.App("jigglewiggle-sam2", image=image)
 cache_vol = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 cache_dir = "/cache"
 
-# Chunk size for parallel processing
-FRAMES_PER_CHUNK = 5
-MAX_FRAMES = 300  # Cap total frames (subsample if video is longer)
+# Parallel processing config
+# Modal allows max 10 concurrent GPUs
+# Reserve 2 (orchestrator + buffer), use up to 8 for chunks
+MAX_PARALLEL_CHUNKS = 8
 
 
 @app.cls(
@@ -145,27 +146,13 @@ class SAM2Model:
         fps_parts = video_stream["r_frame_rate"].split("/")
         original_fps = int(fps_parts[0]) / int(fps_parts[1])
 
-        nb_frames_str = video_stream.get("nb_frames")
-        if nb_frames_str:
-            total_frames = int(nb_frames_str)
-        else:
-            duration = float(video_stream.get("duration", probe.get("format", {}).get("duration", "10")))
-            total_frames = int(duration * original_fps)
-
-        # Subsample if needed
-        if total_frames > MAX_FRAMES:
-            extract_fps = MAX_FRAMES / (total_frames / original_fps)
-        else:
-            extract_fps = original_fps
-
-        # Extract frames
+        # Extract all frames at original fps
         frames_dir = tmp_dir / "frames"
         frames_dir.mkdir()
         ffmpeg.input(str(input_path)).output(
             f"{frames_dir}/%05d.jpg",
             qscale=2,
             start_number=0,
-            r=extract_fps,
         ).run(quiet=True)
 
         frame_paths = sorted(
@@ -184,12 +171,15 @@ class SAM2Model:
         all_frame_bytes = [p.read_bytes() for p in frame_paths]
         num_frames = len(all_frame_bytes)
 
-        print(f"Extracted {num_frames} frames (original ~{total_frames} at {original_fps:.1f}fps)")
+        print(f"Extracted {num_frames} frames at {original_fps:.1f}fps")
 
-        # Split into chunks
+        # Split into chunks — dynamic size to stay within GPU limit
+        import math
+        num_chunks = min(MAX_PARALLEL_CHUNKS, num_frames)
+        frames_per_chunk = math.ceil(num_frames / num_chunks)
         chunks = []
-        for i in range(0, num_frames, FRAMES_PER_CHUNK):
-            chunks.append(all_frame_bytes[i:i + FRAMES_PER_CHUNK])
+        for i in range(0, num_frames, frames_per_chunk):
+            chunks.append(all_frame_bytes[i:i + frames_per_chunk])
 
         print(f"Split into {len(chunks)} chunks for parallel processing")
 
@@ -220,7 +210,7 @@ class SAM2Model:
         output_path = tmp_dir / "mask.mp4"
         cmd = [
             "ffmpeg", "-y",
-            "-framerate", str(extract_fps),
+            "-framerate", str(original_fps),
             "-i", f"{mask_dir}/%05d.png",
             "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
             "-c:v", "libx264",
@@ -241,7 +231,7 @@ class SAM2Model:
         return {
             "mask_video_base64": result_b64,
             "num_frames": num_frames,
-            "fps": extract_fps,
+            "fps": original_fps,
             "original_fps": original_fps,
             "chunks": len(chunks),
             "processing_time": round(total_time, 1),
