@@ -44,6 +44,16 @@ import { resetCoach } from "./lib/coach";
 import { resetScoring } from "./lib/scoring";
 import RecordReplayPanel from "./components/RecordReplayPanel";
 import ModeOverlay from "./components/ModeOverlay";
+import ReportCard from "./components/report/ReportCard";
+import type { AIReport } from "./components/report/types";
+import {
+  resetSessionStats,
+  recordScoreSample,
+  recordLimbScores,
+  recordFrameHit,
+  getSessionStats,
+} from "./lib/sessionStats";
+import type { SessionStats } from "./lib/sessionStats";
 
 type ScoreType = "perfect" | "great" | "ok" | "almost" | "miss";
 
@@ -127,6 +137,10 @@ export default function Home() {
   const [scorePopup, setScorePopup] = useState<ScoreType | null>(null);
   const [videoTitle, setVideoTitle] = useState("");
   const [lastSubmittedUrl, setLastSubmittedUrl] = useState("");
+  const [showReport, setShowReport] = useState(false);
+  const [reportData, setReportData] = useState<AIReport | null>(null);
+  const [reportStats, setReportStats] = useState<SessionStats | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -139,6 +153,8 @@ export default function Home() {
   const replayVideoTimeRef = useRef<number | null>(null);
   const gesturesEnabledRef = useRef(true);
   const loadedRecordingRef = useRef<PoseRecording | null>(null);
+  const videoEndedRef = useRef(false);
+  const sessionStartRef = useRef<number>(0);
   const scoredFramesRef = useRef<Set<number>>(new Set()); // Track which frame indices we've scored
   const lastScoredFrameIndexRef = useRef<number>(-1); // Track last frame we scored to prevent duplicates
   const prevVideoTimeRef = useRef<number>(0); // Track previous video time to detect rewind
@@ -186,6 +202,12 @@ export default function Home() {
       setMode("dance");
       setClassificationStatus("idle");
       resetGymScoring();
+      resetSessionStats();
+      videoEndedRef.current = false;
+      sessionStartRef.current = performance.now();
+      setShowReport(false);
+      setReportData(null);
+      setReportStats(null);
       scoredFramesRef.current.clear();
       lastScoredFrameIndexRef.current = -1;
       prevVideoTimeRef.current = 0;
@@ -359,10 +381,63 @@ export default function Home() {
     segmentationStatus === "error" ||
     segmentationStatus === "unavailable";
 
+  // Handle video end — collect stats and request AI report
+  const handleVideoEnded = useCallback(() => {
+    const elapsed = performance.now() - (sessionStartRef.current || performance.now());
+    const stats = getSessionStats(poseTimeline?.length ?? 0, elapsed);
+    setReportStats(stats);
+    setReportLoading(true);
+    setShowReport(true);
+
+    fetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stats, mode, videoTitle }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.grade) {
+          setReportData(data as AIReport);
+        } else {
+          // Fallback
+          const avg = stats.scoreTimeline.length > 0
+            ? stats.scoreTimeline.reduce((a, b) => a + b, 0) / stats.scoreTimeline.length
+            : 0;
+          setReportData({
+            grade: avg >= 90 ? "S" : avg >= 75 ? "A" : avg >= 60 ? "B" : avg >= 45 ? "C" : "D",
+            headline: "Performance Complete",
+            persona: "The Dancer",
+            personaDesc: "You showed up and gave it your all!",
+            summary: `Average score: ${Math.round(avg)}. Peak: ${stats.peakScore}.`,
+            tips: ["Keep practicing!", "Focus on your weaker limbs", "Try different speeds"],
+            bestLimb: "Torso",
+            worstLimb: "Torso",
+          });
+        }
+      })
+      .catch(() => {
+        const avg = stats.scoreTimeline.length > 0
+          ? stats.scoreTimeline.reduce((a, b) => a + b, 0) / stats.scoreTimeline.length
+          : 0;
+        setReportData({
+          grade: avg >= 90 ? "S" : avg >= 75 ? "A" : avg >= 60 ? "B" : avg >= 45 ? "C" : "D",
+          headline: "Performance Complete",
+          persona: "The Dancer",
+          personaDesc: "You showed up and gave it your all!",
+          summary: `Average score: ${Math.round(avg)}. Peak: ${stats.peakScore}.`,
+          tips: ["Keep practicing!", "Focus on your weaker limbs", "Try different speeds"],
+          bestLimb: "Torso",
+          worstLimb: "Torso",
+        });
+      })
+      .finally(() => setReportLoading(false));
+  }, [poseTimeline, mode, videoTitle]);
+
   // Poll video currentTime, paused state, and aspect ratio via rAF loop (video only mounts when ready)
   useEffect(() => {
     if (extractionStatus !== "done" || !poseTimeline || !segmentationReady) return;
 
+    sessionStartRef.current = performance.now();
     let raf: number;
     const tick = () => {
       const t = youtubePanelRef.current?.getCurrentTime() ?? 0;
@@ -414,6 +489,7 @@ export default function Home() {
             const currentScore = Math.round(smoothedScoreRef.current);
             const scoreType = getScoreType(currentScore);
             setScorePopup(scoreType);
+            recordFrameHit(scoreType as import("./lib/sessionStats").ScoreType);
 
             console.log(`[POPUP] Frame ${i} at ${frameTime.toFixed(2)}s - Score: ${scoreType} (${currentScore})`);
 
@@ -422,10 +498,18 @@ export default function Home() {
         }
       }
 
+      // Video end detection — trigger report card
+      const duration = youtubePanelRef.current?.getDuration() ?? 0;
+      if (duration > 0 && t >= duration - 0.5 && !videoEndedRef.current) {
+        videoEndedRef.current = true;
+        handleVideoEnded();
+      }
+
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extractionStatus, poseTimeline, segmentationReady]);
 
   // Start Groq vision scoring when video is ready
@@ -503,6 +587,7 @@ export default function Home() {
           referenceVideoAspectRatio,
           webcamAspectRatio
         );
+        if (detailed) recordLimbScores(detailed.limbScores);
       } else {
         referencePoseRef.current = null;
       }
@@ -535,6 +620,7 @@ export default function Home() {
     // 4. EMA smoothing + dead zone to suppress jitter
     const smoothed = smoothedScoreRef.current * (1 - SCORE_EMA_ALPHA) + finalScore * SCORE_EMA_ALPHA;
     smoothedScoreRef.current = smoothed;
+    recordScoreSample(smoothed);
     const rounded = Math.round(smoothed);
     if (Math.abs(rounded - score) >= SCORE_DEAD_ZONE) {
       setScore(rounded);
@@ -678,7 +764,7 @@ export default function Home() {
           </span>
         </div>
 
-        <div className="flex-1 max-w-xl mx-8">
+        <div className="flex-1 max-w-xl mx-auto">
           <UrlInput
             onSubmit={handleUrl}
             lastSubmittedTitle={videoTitle}
@@ -686,6 +772,12 @@ export default function Home() {
           />
         </div>
 
+        {/* Spacer to balance the title on the left */}
+        <div className="flex items-center gap-4 invisible">
+          <h1 className="text-xl tracking-[0.2em] uppercase">
+            {mode === "gym" ? "Iron Form" : "Jiggle Wiggle"}
+          </h1>
+        </div>
       </header>
 
       {/* Neon Divider */}
@@ -827,6 +919,21 @@ export default function Home() {
             onStopReplay={handleStopReplay}
           />
         </>
+      )}
+
+      {/* Report Card overlay */}
+      {showReport && reportStats && (
+        <ReportCard
+          stats={reportStats}
+          report={reportData}
+          mode={mode}
+          videoTitle={videoTitle}
+          loading={reportLoading}
+          onClose={() => {
+            setShowReport(false);
+            videoEndedRef.current = false;
+          }}
+        />
       )}
     </div>
   );

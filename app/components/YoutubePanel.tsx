@@ -9,6 +9,7 @@ type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailabl
 
 export type YoutubePanelHandle = {
   getCurrentTime: () => number;
+  getDuration: () => number;
   seekTo: (time: number) => void;
   setPlaybackRate: (rate: number) => void;
   isPaused: () => boolean;
@@ -68,6 +69,7 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
 
   useImperativeHandle(ref, () => ({
     getCurrentTime: () => videoRef.current?.currentTime ?? 0,
+    getDuration: () => videoRef.current?.duration ?? 0,
     seekTo: (time: number) => {
       if (videoRef.current) videoRef.current.currentTime = time;
     },
