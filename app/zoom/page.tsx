@@ -30,8 +30,16 @@ export default function ZoomApp() {
   const remotePoseRef = useRef<NormalizedLandmark[] | null>(null);
   const selfPoseRef = useRef<NormalizedLandmark[] | null>(null);
 
+  // Debug: track whether each pose stream is active
+  const [debugInfo, setDebugInfo] = useState({ remote: false, self: false });
+
   // Run comparison whenever either pose updates
   const runComparison = useCallback(() => {
+    const hasRemote = !!(remotePoseRef.current && remotePoseRef.current.length >= 33);
+    const hasSelf = !!(selfPoseRef.current && selfPoseRef.current.length >= 33);
+
+    setDebugInfo({ remote: hasRemote, self: hasSelf });
+
     const result = comparePoses(remotePoseRef.current, selfPoseRef.current);
     setComparison(result);
 
@@ -43,10 +51,10 @@ export default function ZoomApp() {
       summary.score = result.similarity;
       summary.issues = result.feedback;
 
-      getCoachMessage(summary).then((result) => {
-        if (result) {
-          setCoachMsg(result.message);
-          if (result.audio) speak(result.audio);
+      getCoachMessage(summary).then((coachResult) => {
+        if (coachResult) {
+          setCoachMsg(coachResult.message);
+          if (coachResult.audio) speak(coachResult.audio);
         }
       });
     }
@@ -173,7 +181,15 @@ export default function ZoomApp() {
           <div className="flex-1 min-w-0"><ScreenCapturePanel onPose={handleRemotePose} /></div>
           <div className="flex-1 min-w-0"><CameraPanel onPose={handleSelfPose} badge="YOU" /></div>
         </main>
-        <footer className="flex-shrink-0 px-4 pb-4">
+        <footer className="flex-shrink-0 px-4 pb-4 space-y-2">
+          <div className="flex gap-3 text-xs px-2">
+            <span className={debugInfo.remote ? "text-green-400" : "text-red-400"}>
+              Remote Pose: {debugInfo.remote ? "DETECTED" : "NONE"}
+            </span>
+            <span className={debugInfo.self ? "text-green-400" : "text-red-400"}>
+              Your Pose: {debugInfo.self ? "DETECTED" : "NONE"}
+            </span>
+          </div>
           <ComparisonPanel comparison={comparison} coachMessage={coachMsg} />
         </footer>
       </div>
@@ -248,7 +264,15 @@ export default function ZoomApp() {
         </div>
       </main>
 
-      <footer className="flex-shrink-0 px-4 pb-4">
+      <footer className="flex-shrink-0 px-4 pb-4 space-y-2">
+        <div className="flex gap-3 text-xs px-2">
+          <span className={debugInfo.remote ? "text-green-400" : "text-red-400"}>
+            Remote Pose: {debugInfo.remote ? "DETECTED" : "NONE"}
+          </span>
+          <span className={debugInfo.self ? "text-green-400" : "text-red-400"}>
+            Your Pose: {debugInfo.self ? "DETECTED" : "NONE"}
+          </span>
+        </div>
         <ComparisonPanel comparison={comparison} coachMessage={coachMsg} />
       </footer>
     </div>
