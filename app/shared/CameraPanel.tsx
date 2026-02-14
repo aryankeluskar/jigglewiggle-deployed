@@ -1,44 +1,46 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
-import { drawSkeleton, loadPose } from "./pose";
-import type { NormalizedLandmark, PoseResults } from "./pose";
+import { useEffect, useRef } from "react";
+import { registerPoseSource } from "./poseManager";
+import { drawSkeleton } from "./pose";
+import type { NormalizedLandmark } from "./pose";
 
 type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
   /** Optional label shown in the top-right badge. Defaults to "LIVE". */
   badge?: string;
+  /** Optional: overlay segmented video */
+  segmentedVideoUrl?: string | null;
+  /** Optional: reference video time for syncing overlay */
+  referenceVideoTime?: number;
 };
 
-export default function CameraPanel({ onPose, badge = "LIVE" }: Props) {
+export default function CameraPanel({ onPose, badge = "LIVE", segmentedVideoUrl, referenceVideoTime }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const poseRef = useRef<unknown>(null);
-  const animFrameRef = useRef<number>(0);
-  const activeRef = useRef(true);
+  const overlayVideoRef = useRef<HTMLVideoElement>(null);
 
-  const processFrame = useCallback(async () => {
-    if (!activeRef.current) return;
-    const video = videoRef.current;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pose = poseRef.current as any;
+  // Keep onPose fresh in a ref so we don't re-register when callback identity changes
+  const onPoseRef = useRef(onPose);
+  onPoseRef.current = onPose;
 
-    if (video && pose && video.readyState >= 2) {
-      try {
-        await pose.send({ image: video });
-      } catch {
-        // pose may not be ready yet
+  // Sync overlay video time
+  useEffect(() => {
+    if (overlayVideoRef.current && referenceVideoTime !== undefined && segmentedVideoUrl) {
+      const diff = Math.abs(overlayVideoRef.current.currentTime - referenceVideoTime);
+      if (diff > 0.3) {
+        overlayVideoRef.current.currentTime = referenceVideoTime;
+      }
+      if (overlayVideoRef.current.paused && referenceVideoTime > 0) {
+        overlayVideoRef.current.play().catch(() => {});
       }
     }
-
-    if (activeRef.current) {
-      animFrameRef.current = requestAnimationFrame(processFrame);
-    }
-  }, []);
+  }, [referenceVideoTime, segmentedVideoUrl]);
 
   useEffect(() => {
-    activeRef.current = true;
     let stream: MediaStream | null = null;
+    let unregister: (() => void) | null = null;
+    let cancelled = false;
 
     const init = async () => {
       try {
@@ -47,34 +49,37 @@ export default function CameraPanel({ onPose, badge = "LIVE" }: Props) {
           audio: false,
         });
 
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+          await videoRef.current.play().catch(() => {}); // suppress play() interrupted
         }
 
-        const pose = await loadPose();
-        poseRef.current = pose;
+        if (cancelled) return;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (pose as any).onResults((results: PoseResults) => {
-          const landmarks = results.poseLandmarks ?? null;
-          onPose(landmarks);
+        console.log("[CameraPanel] Registering with pose manager...");
+        // Register with the shared pose manager
+        unregister = await registerPoseSource(
+          "camera",
+          () => videoRef.current,
+          (landmarks) => {
+            onPoseRef.current(landmarks);
 
-          const canvas = canvasRef.current;
-          if (canvas && landmarks) {
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-              canvas.width = canvas.offsetWidth;
-              canvas.height = canvas.offsetHeight;
-              drawSkeleton(ctx, landmarks, canvas.width, canvas.height);
+            const canvas = canvasRef.current;
+            if (canvas && landmarks) {
+              const ctx = canvas.getContext("2d");
+              if (ctx) {
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+                drawSkeleton(ctx, landmarks, canvas.width, canvas.height);
+              }
+            } else if (canvas) {
+              const ctx = canvas.getContext("2d");
+              ctx?.clearRect(0, 0, canvas.width, canvas.height);
             }
-          } else if (canvas) {
-            const ctx = canvas.getContext("2d");
-            ctx?.clearRect(0, 0, canvas.width, canvas.height);
           }
-        });
-
-        animFrameRef.current = requestAnimationFrame(processFrame);
+        );
       } catch (err) {
         console.error("Camera/Pose init error:", err);
       }
@@ -83,13 +88,13 @@ export default function CameraPanel({ onPose, badge = "LIVE" }: Props) {
     init();
 
     return () => {
-      activeRef.current = false;
-      cancelAnimationFrame(animFrameRef.current);
+      cancelled = true;
+      unregister?.();
       if (stream) {
         stream.getTracks().forEach((t) => t.stop());
       }
     };
-  }, [onPose, processFrame]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black">
@@ -100,6 +105,17 @@ export default function CameraPanel({ onPose, badge = "LIVE" }: Props) {
         className="w-full h-full object-cover"
         style={{ transform: "scaleX(-1)" }}
       />
+      {/* Overlay segmented video */}
+      {segmentedVideoUrl && (
+        <video
+          ref={overlayVideoRef}
+          src={segmentedVideoUrl}
+          playsInline
+          muted
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          style={{ transform: "scaleX(-1)", mixBlendMode: "screen", opacity: 0.7 }}
+        />
+      )}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none"

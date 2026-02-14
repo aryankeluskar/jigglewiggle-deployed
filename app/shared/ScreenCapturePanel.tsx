@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { loadPose, POSE_CONNECTIONS } from "./pose";
-import type { NormalizedLandmark, PoseResults } from "./pose";
+import { registerPoseSource } from "./poseManager";
+import { POSE_CONNECTIONS } from "./pose";
+import type { NormalizedLandmark } from "./pose";
 
 type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
@@ -13,31 +14,14 @@ type Props = {
 export default function ScreenCapturePanel({ onPose, onStop }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const poseRef = useRef<unknown>(null);
-  const animFrameRef = useRef<number>(0);
-  const activeRef = useRef(false);
   const streamRef = useRef<MediaStream | null>(null);
+  const unregisterRef = useRef<(() => void) | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const processFrame = useCallback(async () => {
-    if (!activeRef.current) return;
-    const video = videoRef.current;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pose = poseRef.current as any;
-
-    if (video && pose && video.readyState >= 2) {
-      try {
-        await pose.send({ image: video });
-      } catch {
-        // pose may not be ready yet
-      }
-    }
-
-    if (activeRef.current) {
-      animFrameRef.current = requestAnimationFrame(processFrame);
-    }
-  }, []);
+  // Use a ref for onPose so the callback stays fresh without re-registering
+  const onPoseRef = useRef(onPose);
+  onPoseRef.current = onPose;
 
   const startCapture = useCallback(async () => {
     try {
@@ -62,36 +46,41 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        await videoRef.current.play().catch(() => {});
+        // Wait for video to actually have data
+        await new Promise<void>((resolve) => {
+          const v = videoRef.current!;
+          if (v.readyState >= 2) { resolve(); return; }
+          v.addEventListener("loadeddata", () => resolve(), { once: true });
+        });
       }
 
-      // Load pose detection
-      const pose = await loadPose();
-      poseRef.current = pose;
+      console.log("[ScreenCapture] Video ready, readyState:", videoRef.current?.readyState, "registering with pose manager...");
+      // Register with the shared pose manager
+      const unregister = await registerPoseSource(
+        "screen-capture",
+        () => videoRef.current,
+        (landmarks) => {
+          onPoseRef.current(landmarks);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (pose as any).onResults((results: PoseResults) => {
-        const landmarks = results.poseLandmarks ?? null;
-        onPose(landmarks);
-
-        const canvas = canvasRef.current;
-        if (canvas && landmarks) {
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            // No mirror for screen capture (unlike webcam)
-            drawSkeletonNoMirror(ctx, landmarks, canvas.width, canvas.height);
+          // Draw skeleton on canvas
+          const canvas = canvasRef.current;
+          if (canvas && landmarks) {
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              canvas.width = canvas.offsetWidth;
+              canvas.height = canvas.offsetHeight;
+              drawSkeletonNoMirror(ctx, landmarks, canvas.width, canvas.height);
+            }
+          } else if (canvas) {
+            const ctx = canvas.getContext("2d");
+            ctx?.clearRect(0, 0, canvas.width, canvas.height);
           }
-        } else if (canvas) {
-          const ctx = canvas.getContext("2d");
-          ctx?.clearRect(0, 0, canvas.width, canvas.height);
         }
-      });
+      );
+      unregisterRef.current = unregister;
 
-      activeRef.current = true;
       setCapturing(true);
-      animFrameRef.current = requestAnimationFrame(processFrame);
     } catch (err) {
       console.error("Screen capture error:", err);
       if (err instanceof Error && err.name === "NotAllowedError") {
@@ -100,11 +89,11 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
         setError("Could not start screen capture.");
       }
     }
-  }, [onPose, onStop, processFrame]);
+  }, [onStop]);
 
   const stopCapture = useCallback(() => {
-    activeRef.current = false;
-    cancelAnimationFrame(animFrameRef.current);
+    unregisterRef.current?.();
+    unregisterRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -115,8 +104,7 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      activeRef.current = false;
-      cancelAnimationFrame(animFrameRef.current);
+      unregisterRef.current?.();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
