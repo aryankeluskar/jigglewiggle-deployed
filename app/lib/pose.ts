@@ -43,6 +43,7 @@ export type SkeletonStyle = {
   pointRadius?: number;
   opacity?: number;
   clear?: boolean;
+  connectionColors?: Map<string, string>;
 };
 
 /**
@@ -71,7 +72,7 @@ export function drawSkeleton(
   const xPos = (x: number) => (mirror ? (1 - x) * width : x * width);
 
   // Draw connections
-  ctx.strokeStyle = strokeColor;
+  const connColors = style?.connectionColors;
   ctx.lineWidth = lineWidth;
   ctx.lineCap = "round";
 
@@ -81,6 +82,7 @@ export function drawSkeleton(
     if (!la || !lb) continue;
     if ((la.visibility ?? 0) < 0.3 || (lb.visibility ?? 0) < 0.3) continue;
 
+    ctx.strokeStyle = connColors?.get(`${a}-${b}`) ?? strokeColor;
     ctx.beginPath();
     ctx.moveTo(xPos(la.x), la.y * height);
     ctx.lineTo(xPos(lb.x), lb.y * height);

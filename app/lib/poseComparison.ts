@@ -74,6 +74,53 @@ function dist(a: NormalizedLandmark, b: NormalizedLandmark): number {
 }
 
 /**
+ * Classify a pose into a short human-readable label based on landmark geometry.
+ */
+export function classifyPose(landmarks: NormalizedLandmark[]): string {
+  const lShoulder = landmarks[11];
+  const rShoulder = landmarks[12];
+  const lWrist = landmarks[15];
+  const rWrist = landmarks[16];
+  const lHip = landmarks[23];
+  const rHip = landmarks[24];
+  const lAnkle = landmarks[27];
+  const rAnkle = landmarks[28];
+
+  if (!lShoulder || !rShoulder || !lHip || !rHip) return "Pose";
+
+  const shoulderY = (lShoulder.y + rShoulder.y) / 2;
+  const hipY = (lHip.y + rHip.y) / 2;
+
+  const armsUp =
+    lWrist && rWrist && lWrist.y < shoulderY - 0.05 && rWrist.y < shoulderY - 0.05;
+  const leftArmUp = lWrist && lWrist.y < shoulderY - 0.05;
+  const rightArmUp = rWrist && rWrist.y < shoulderY - 0.05;
+  const armsWide =
+    lWrist &&
+    rWrist &&
+    Math.abs(lWrist.x - rWrist.x) > 0.4 &&
+    lWrist.y > shoulderY - 0.08 &&
+    rWrist.y > shoulderY - 0.08;
+
+  const stanceWidth =
+    lAnkle && rAnkle ? Math.abs(lAnkle.x - rAnkle.x) : 0;
+  const wideStance = stanceWidth > 0.2;
+
+  const crouching = hipY > 0.6;
+
+  if (armsUp && wideStance) return "Star jump";
+  if (armsUp) return "Arms up";
+  if (armsWide && wideStance) return "T-pose";
+  if (armsWide) return "Arms wide";
+  if (leftArmUp && !rightArmUp) return "Left reach";
+  if (rightArmUp && !leftArmUp) return "Right reach";
+  if (crouching && wideStance) return "Low squat";
+  if (crouching) return "Crouch";
+  if (wideStance) return "Wide stance";
+  return "Neutral";
+}
+
+/**
  * Compare two normalized poses. Returns an overall score (0-100)
  * and a per-connection color map for drawSkeleton.
  */

@@ -31,11 +31,16 @@ export default function Home() {
   const [coachMsg, setCoachMsg] = useState("");
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
+  const livePoseRef = useRef<NormalizedLandmark[] | null>(null);
 
   const handleUrl = useCallback(async (url: string) => {
     const id = extractVideoId(url);
     if (!id) {
       alert("Could not extract a YouTube video ID from that URL.");
+      return;
+    }
+
+    if (id === videoId && downloadStatus === "done") {
       return;
     }
 
@@ -92,7 +97,7 @@ export default function Home() {
       setDownloadStatus("error");
       setDownloadError(err instanceof Error ? err.message : "Network error");
     }
-  }, []);
+  }, [videoId, downloadStatus]);
 
   // Read ?url= query param on mount (for Chrome extension)
   useEffect(() => {
@@ -140,6 +145,8 @@ export default function Home() {
   // Stable callback ref to avoid re-mounting CameraPanel
   const onPoseRef = useRef<(landmarks: NormalizedLandmark[] | null) => void>(null);
   onPoseRef.current = (landmarks: NormalizedLandmark[] | null) => {
+    livePoseRef.current = landmarks;
+
     const frame = computeScore(landmarks);
     setScore(frame.score);
 
@@ -161,7 +168,7 @@ export default function Home() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white flex flex-col">
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white flex flex-col">
       {/* Header */}
       <header className="flex-shrink-0 px-6 py-4 flex items-center justify-between border-b border-white/5">
         <h1 className="text-xl font-bold tracking-tight">
@@ -199,7 +206,12 @@ export default function Home() {
       {/* Move queue strip */}
       {poseTimeline && poseTimeline.length > 0 && (
         <div className="flex-shrink-0 px-4">
-          <MoveQueue timeline={poseTimeline} currentTime={currentVideoTime} />
+          <MoveQueue
+            timeline={poseTimeline}
+            currentTime={currentVideoTime}
+            livePoseRef={livePoseRef}
+            onSeek={(time: number) => youtubePanelRef.current?.seekTo(time)}
+          />
         </div>
       )}
 

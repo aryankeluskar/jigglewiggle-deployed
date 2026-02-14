@@ -7,6 +7,7 @@ type ExtractionStatus = "idle" | "extracting" | "done";
 
 export type YoutubePanelHandle = {
   getCurrentTime: () => number;
+  seekTo: (time: number) => void;
 };
 
 type Props = {
@@ -33,6 +34,9 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
 
   useImperativeHandle(ref, () => ({
     getCurrentTime: () => videoRef.current?.currentTime ?? 0,
+    seekTo: (time: number) => {
+      if (videoRef.current) videoRef.current.currentTime = time;
+    },
   }));
 
   if (!videoId || downloadStatus === "idle") {
