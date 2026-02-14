@@ -17,6 +17,10 @@ import type { DetailedComparison } from "./lib/poseComparison";
 import { speak } from "./lib/speech";
 import { segmentVideo, isSegmentationAvailable } from "./lib/segmentation";
 import { startGroqScoring, resetGroqScoring } from "./lib/groqScoring";
+import { processGestureLandmarks, resetGestureState } from "./lib/gestureControl";
+import type { GestureAction } from "./lib/gestureControl";
+import { GestureToast, GestureProgressBar } from "./components/GestureToast";
+import GestureGuide from "./components/GestureGuide";
 import type { NormalizedLandmark } from "./lib/pose";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
@@ -81,6 +85,10 @@ export default function Home() {
   const [isVideoPaused, setIsVideoPaused] = useState(false);
   const [referenceVideoAspectRatio, setReferenceVideoAspectRatio] = useState(16/9);
   const [groqFeedback, setGroqFeedback] = useState("");
+  const [gestureToast, setGestureToast] = useState<GestureAction | null>(null);
+  const [gestureToastSeq, setGestureToastSeq] = useState(0);
+  const [gestureProgress, setGestureProgress] = useState(0);
+  const [gesturePending, setGesturePending] = useState<GestureAction | null>(null);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -129,6 +137,7 @@ export default function Home() {
       smoothedScoreRef.current = 0;
       setGroqFeedback("");
       resetGroqScoring();
+      resetGestureState();
     }
 
     setVideoId(id);
@@ -323,6 +332,32 @@ export default function Home() {
   onPoseRef.current = (landmarks: NormalizedLandmark[] | null) => {
     livePoseRef.current = landmarks;
 
+    // Gesture detection
+    const gesture = processGestureLandmarks(landmarks);
+    setGestureProgress(gesture.progress);
+    setGesturePending(gesture.pending);
+    if (gesture.lastAction) {
+      setGestureToast(gesture.lastAction);
+      setGestureToastSeq((s) => s + 1);
+      const panel = youtubePanelRef.current;
+      if (panel) {
+        switch (gesture.lastAction) {
+          case "play_pause":
+            panel.togglePlayPause();
+            break;
+          case "skip_forward":
+            panel.seekTo(panel.getCurrentTime() + 5);
+            break;
+          case "skip_backward":
+            panel.seekTo(Math.max(0, panel.getCurrentTime() - 5));
+            break;
+          case "restart":
+            panel.seekTo(0);
+            break;
+        }
+      }
+    }
+
     // 1. Heuristic score (always computed — feeds body metrics for coach summary)
     const frame = computeScore(landmarks);
     const issues = [...frame.issues];
@@ -406,6 +441,8 @@ export default function Home() {
       {/* Score-reactive screen-edge aura */}
       <div className={getAuraClass()} />
 
+      {/* Gesture action toast */}
+      <GestureToast action={gestureToast} seq={gestureToastSeq} />
 
       {/* Header — Neon Marquee */}
       <header className="flex-shrink-0 px-6 py-3 flex items-center justify-between relative z-20">
@@ -492,7 +529,8 @@ export default function Home() {
         </div>
 
         {/* Right — Live Camera with score-reactive glow */}
-        <div className={`flex-1 min-w-0 transition-all duration-700 ${getCameraGlow()}`}>
+        <div className={`flex-1 min-w-0 relative transition-all duration-700 ${getCameraGlow()}`}>
+          <GestureProgressBar progress={gestureProgress} pending={gesturePending} />
           <CameraPanel
             onPose={handlePose}
             segmentedVideoUrl={segmentedVideoUrl}
@@ -502,6 +540,7 @@ export default function Home() {
             referenceVideoAspectRatio={referenceVideoAspectRatio}
             webcamCaptureRef={webcamCaptureRef}
           />
+          <GestureGuide />
         </div>
       </main>
 

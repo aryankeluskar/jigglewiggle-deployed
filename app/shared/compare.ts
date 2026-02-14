@@ -6,6 +6,7 @@
 
 import type { NormalizedLandmark } from "./pose";
 
+
 export type ComparisonResult = {
   /** Overall similarity 0-100 (100 = perfect match) */
   similarity: number;
