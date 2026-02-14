@@ -1,5 +1,8 @@
 /**
- * Re-export from shared module for backward compatibility.
+ * MediaPipe Pose setup and skeleton drawing utilities.
+ * SHARED MODULE — used by both the YouTube app and the Zoom app.
+ *
+ * We load MediaPipe Pose from CDN to avoid bundling WASM in Next.js.
  */
 
 export type NormalizedLandmark = {
@@ -33,17 +36,6 @@ export const POSE_CONNECTIONS: [number, number][] = [
   [30, 32],
 ];
 
-export type SkeletonStyle = {
-  mirror?: boolean;
-  strokeColor?: string;
-  fillColor?: string;
-  lineWidth?: number;
-  pointRadius?: number;
-  opacity?: number;
-  clear?: boolean;
-  connectionColors?: Map<string, string>;
-};
-
 /**
  * Draw a skeleton overlay on a canvas from pose landmarks.
  */
@@ -51,27 +43,13 @@ export function drawSkeleton(
   ctx: CanvasRenderingContext2D,
   landmarks: NormalizedLandmark[],
   width: number,
-  height: number,
-  style?: SkeletonStyle
+  height: number
 ) {
-  const mirror = style?.mirror ?? true;
-  const strokeColor = style?.strokeColor ?? "#00FF88";
-  const fillColor = style?.fillColor ?? "#FF4488";
-  const lineWidth = style?.lineWidth ?? 3;
-  const pointRadius = style?.pointRadius ?? 5;
-  const opacity = style?.opacity ?? 1;
-  const clear = style?.clear ?? true;
-
-  if (clear) ctx.clearRect(0, 0, width, height);
-
-  ctx.save();
-  ctx.globalAlpha = opacity;
-
-  const xPos = (x: number) => (mirror ? (1 - x) * width : x * width);
+  ctx.clearRect(0, 0, width, height);
 
   // Draw connections
-  const connColors = style?.connectionColors;
-  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = "#00FF88";
+  ctx.lineWidth = 3;
   ctx.lineCap = "round";
 
   for (const [a, b] of POSE_CONNECTIONS) {
@@ -80,24 +58,22 @@ export function drawSkeleton(
     if (!la || !lb) continue;
     if ((la.visibility ?? 0) < 0.3 || (lb.visibility ?? 0) < 0.3) continue;
 
-    ctx.strokeStyle = connColors?.get(`${a}-${b}`) ?? strokeColor;
     ctx.beginPath();
-    ctx.moveTo(xPos(la.x), la.y * height);
-    ctx.lineTo(xPos(lb.x), lb.y * height);
+    // Mirror x for webcam
+    ctx.moveTo((1 - la.x) * width, la.y * height);
+    ctx.lineTo((1 - lb.x) * width, lb.y * height);
     ctx.stroke();
   }
 
   // Draw keypoints
-  ctx.fillStyle = fillColor;
+  ctx.fillStyle = "#FF4488";
   for (let i = 11; i < landmarks.length; i++) {
     const lm = landmarks[i];
     if (!lm || (lm.visibility ?? 0) < 0.3) continue;
     ctx.beginPath();
-    ctx.arc(xPos(lm.x), lm.y * height, pointRadius, 0, 2 * Math.PI);
+    ctx.arc((1 - lm.x) * width, lm.y * height, 5, 0, 2 * Math.PI);
     ctx.fill();
   }
-
-  ctx.restore();
 }
 
 /**
@@ -105,7 +81,6 @@ export function drawSkeleton(
  * Returns a configured Pose instance.
  */
 export async function loadPose(): Promise<unknown> {
-  // Load scripts dynamically
   const loadScript = (src: string): Promise<void> =>
     new Promise((resolve, reject) => {
       if (document.querySelector(`script[src="${src}"]`)) {
