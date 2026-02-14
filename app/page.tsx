@@ -42,10 +42,12 @@ import {
 import { resetCoach } from "./lib/coach";
 import { resetScoring } from "./lib/scoring";
 import RecordReplayPanel from "./components/RecordReplayPanel";
+import ModeOverlay from "./components/ModeOverlay";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
 type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailable";
+type ClassificationStatus = "idle" | "pending" | "done";
 
 const STRIP_POSE_CACHE_VERSION = 4;
 const STRIP_POSE_INTERVAL_SECONDS = 2;
@@ -113,6 +115,8 @@ export default function Home() {
   const [replayPaused, setReplayPaused] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
   const [mode, setMode] = useState<AppMode>("dance");
+  const [classificationStatus, setClassificationStatus] = useState<ClassificationStatus>("idle");
+  const [modeOverlaySeq, setModeOverlaySeq] = useState(0);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -166,11 +170,13 @@ export default function Home() {
       resetGroqScoring();
       resetGestureState();
       setMode("dance");
+      setClassificationStatus("idle");
       resetGymScoring();
     }
 
     setVideoId(id);
     setDownloadStatus("downloading");
+    setClassificationStatus("pending");
     setDownloadProgress(0);
     setDownloadError(null);
 
@@ -211,6 +217,8 @@ export default function Home() {
               setDownloadStatus("done");
             } else if (event.type === "classified") {
               setMode(event.mode === "gym" ? "gym" : "dance");
+              setClassificationStatus("done");
+              setModeOverlaySeq(s => s + 1);
             } else if (event.type === "error") {
               setDownloadStatus("error");
               setDownloadError(event.message);
@@ -234,6 +242,16 @@ export default function Home() {
       handleUrl(urlParam);
     }
   }, [handleUrl]);
+
+  // Safety timeout: if classification hasn't resolved 8s after download, default to dance
+  useEffect(() => {
+    if (downloadStatus !== "done" || classificationStatus !== "pending") return;
+    const timer = setTimeout(() => {
+      setClassificationStatus("done");
+      setModeOverlaySeq(s => s + 1);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [downloadStatus, classificationStatus]);
 
   // Kick off pose extraction after download completes
   useEffect(() => {
@@ -591,106 +609,130 @@ export default function Home() {
       {/* Neon Divider */}
       <div className="flex-shrink-0 neon-divider relative z-10" />
 
-      {/* Main Split Screen */}
-      <main className="flex-1 flex gap-3 p-3 min-h-0 relative z-10">
-        {/* Left — Reference Video */}
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
-          <YoutubePanel
-            ref={youtubePanelRef}
-            videoId={videoId}
-            downloadStatus={downloadStatus}
-            downloadProgress={downloadProgress}
-            downloadError={downloadError}
-            extractionStatus={extractionStatus}
-            extractionProgress={extractionProgress}
-            segmentationStatus={segmentationStatus}
-            segmentationProgress={segmentationProgress}
-          />
+      {/* Mode activation overlay */}
+      <ModeOverlay mode={mode} seq={modeOverlaySeq} />
 
-          {/* Playback Speed Slider */}
-          {downloadStatus === "done" && (
-            <div className="flex items-center gap-3 px-3 py-2 bg-black/30 border border-neon-cyan/10 rounded">
-              <label
-                className="text-[10px] tracking-[0.2em] uppercase text-neon-cyan/50"
-                style={{ fontFamily: "var(--font-audiowide)" }}
-              >
-                Speed
-              </label>
-              <input
-                type="range"
-                min="0.25"
-                max="2"
-                step="0.25"
-                value={playbackRate}
-                onChange={(e) => {
-                  const rate = parseFloat(e.target.value);
-                  setPlaybackRate(rate);
-                  youtubePanelRef.current?.setPlaybackRate(rate);
-                }}
-                className="flex-1 h-1 bg-black/50 rounded appearance-none cursor-pointer"
-                style={{
-                  accentColor: "#00ffff",
-                }}
-              />
-              <span
-                className="text-[11px] text-neon-cyan/70 font-mono min-w-[40px] text-right"
-                style={{ fontFamily: "var(--font-audiowide)" }}
-              >
-                {playbackRate.toFixed(2)}x
-              </span>
+      {/* Classification pending — "Detecting mode..." indicator */}
+      {downloadStatus === "done" && classificationStatus === "pending" && (
+        <main className="flex-1 flex items-center justify-center min-h-0 relative z-10">
+          <div className="flex flex-col items-center gap-4">
+            <div
+              className="text-lg tracking-[0.3em] uppercase neon-text-cyan animate-glow-pulse"
+              style={{ fontFamily: "var(--font-audiowide)" }}
+            >
+              Detecting mode...
             </div>
-          )}
-        </div>
-
-        {/* Right — Live Camera with score-reactive glow */}
-        <div className={`flex-1 min-w-0 relative transition-all duration-700 ${getCameraGlow()}`}>
-          <GestureProgressBar progress={gestureProgress} pending={gesturePending} />
-          <CameraPanel
-            onPose={handlePose}
-            segmentedVideoUrl={segmentedVideoUrl}
-            referenceVideoTime={currentVideoTime}
-            playbackRate={playbackRate}
-            isReferencePaused={isVideoPaused}
-            referenceVideoAspectRatio={referenceVideoAspectRatio}
-            webcamCaptureRef={webcamCaptureRef}
-          />
-          <GestureGuide />
-        </div>
-      </main>
-
-      {/* Move Queue Strip */}
-      {poseTimeline && poseTimeline.length > 0 && (
-        <div className="flex-shrink-0 px-3 relative z-10">
-          <MoveQueue
-            timeline={poseTimeline}
-            currentTime={currentVideoTime}
-            livePoseRef={livePoseRef}
-            onSeek={(time: number) => youtubePanelRef.current?.seekTo(time)}
-            playbackRate={playbackRate}
-          />
-        </div>
+            <div className="w-48 h-1 rounded-full overflow-hidden bg-black/40 border border-neon-cyan/10">
+              <div className="h-full neon-progress" style={{ width: "60%" }} />
+            </div>
+          </div>
+        </main>
       )}
 
-      {/* Coach Panel */}
-      <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
-        <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} mode={mode} />
-      </footer>
+      {/* Main Split Screen — only when classification resolved or still downloading */}
+      {(classificationStatus === "done" || downloadStatus !== "done") && (
+        <>
+          <main className="flex-1 flex gap-3 p-3 min-h-0 relative z-10">
+            {/* Left — Reference Video */}
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
+              <YoutubePanel
+                ref={youtubePanelRef}
+                videoId={videoId}
+                downloadStatus={downloadStatus}
+                downloadProgress={downloadProgress}
+                downloadError={downloadError}
+                extractionStatus={extractionStatus}
+                extractionProgress={extractionProgress}
+                segmentationStatus={segmentationStatus}
+                segmentationProgress={segmentationProgress}
+              />
 
-      {/* Record / Replay toolbar */}
-      <RecordReplayPanel
-        videoId={videoId}
-        poseTimeline={poseTimeline}
-        isReplaying={replayActive}
-        isPaused={replayPaused}
-        replayProgress={replayProgress}
-        onStartRecord={handleStartRecord}
-        onStopRecord={handleStopRecord}
-        onLoadRecording={handleLoadRecording}
-        onStartReplay={handleStartReplay}
-        onPauseReplay={handlePauseReplay}
-        onResumeReplay={handleResumeReplay}
-        onStopReplay={handleStopReplay}
-      />
+              {/* Playback Speed Slider */}
+              {downloadStatus === "done" && (
+                <div className="flex items-center gap-3 px-3 py-2 bg-black/30 border border-neon-cyan/10 rounded">
+                  <label
+                    className="text-[10px] tracking-[0.2em] uppercase text-neon-cyan/50"
+                    style={{ fontFamily: "var(--font-audiowide)" }}
+                  >
+                    Speed
+                  </label>
+                  <input
+                    type="range"
+                    min="0.25"
+                    max="2"
+                    step="0.25"
+                    value={playbackRate}
+                    onChange={(e) => {
+                      const rate = parseFloat(e.target.value);
+                      setPlaybackRate(rate);
+                      youtubePanelRef.current?.setPlaybackRate(rate);
+                    }}
+                    className="flex-1 h-1 bg-black/50 rounded appearance-none cursor-pointer"
+                    style={{
+                      accentColor: "#00ffff",
+                    }}
+                  />
+                  <span
+                    className="text-[11px] text-neon-cyan/70 font-mono min-w-[40px] text-right"
+                    style={{ fontFamily: "var(--font-audiowide)" }}
+                  >
+                    {playbackRate.toFixed(2)}x
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Right — Live Camera with score-reactive glow */}
+            <div className={`flex-1 min-w-0 relative transition-all duration-700 ${getCameraGlow()}`}>
+              <GestureProgressBar progress={gestureProgress} pending={gesturePending} />
+              <CameraPanel
+                onPose={handlePose}
+                segmentedVideoUrl={segmentedVideoUrl}
+                referenceVideoTime={currentVideoTime}
+                playbackRate={playbackRate}
+                isReferencePaused={isVideoPaused}
+                referenceVideoAspectRatio={referenceVideoAspectRatio}
+                webcamCaptureRef={webcamCaptureRef}
+              />
+              <GestureGuide />
+            </div>
+          </main>
+
+          {/* Move Queue Strip */}
+          {poseTimeline && poseTimeline.length > 0 && (
+            <div className="flex-shrink-0 px-3 relative z-10">
+              <MoveQueue
+                timeline={poseTimeline}
+                currentTime={currentVideoTime}
+                livePoseRef={livePoseRef}
+                onSeek={(time: number) => youtubePanelRef.current?.seekTo(time)}
+                playbackRate={playbackRate}
+              />
+            </div>
+          )}
+
+          {/* Coach Panel */}
+          <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
+            <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} mode={mode} />
+          </footer>
+
+          {/* Record / Replay toolbar */}
+          <RecordReplayPanel
+            videoId={videoId}
+            poseTimeline={poseTimeline}
+            isReplaying={replayActive}
+            isPaused={replayPaused}
+            replayProgress={replayProgress}
+            onStartRecord={handleStartRecord}
+            onStopRecord={handleStopRecord}
+            onLoadRecording={handleLoadRecording}
+            onStartReplay={handleStartReplay}
+            onPauseReplay={handlePauseReplay}
+            onResumeReplay={handleResumeReplay}
+            onStopReplay={handleStopReplay}
+          />
+        </>
+      )}
     </div>
   );
 }
