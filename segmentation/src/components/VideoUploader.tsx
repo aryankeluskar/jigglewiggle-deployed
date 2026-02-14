@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { segmentVideo, isReplicateConfigured } from '../utils/replicateClient';
+import { segmentVideo, isBackendConfigured } from '../utils/replicateClient';
 
 interface VideoUploaderProps {
   onVideoProcessed: (
@@ -18,7 +18,7 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({ onVideoProcessed }
 
   // Check if backend is available on mount
   useEffect(() => {
-    isReplicateConfigured().then(setBackendAvailable);
+    isBackendConfigured().then(setBackendAvailable);
   }, []);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,25 +45,20 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({ onVideoProcessed }
       // Create object URL for original video
       const originalVideoUrl = URL.createObjectURL(file);
 
-      // Segment video using Replicate (for outline mask)
-      setStatus('Segmenting video...');
-      const segmentedVideoUrl = await segmentVideo(file, (statusText, progressValue) => {
+      // Segment video using Modal SAM2
+      setStatus('Segmenting video via Modal...');
+      const maskVideoUrl = await segmentVideo(file, (statusText, progressValue) => {
         setStatus(statusText);
         if (progressValue !== undefined) {
           setProgress(progressValue * 0.9); // 0-90%
         }
       });
 
-      // Proxy the video through our backend to avoid CORS
-      setStatus('Processing video for local playback...');
-      setProgress(95);
-      const proxiedUrl = `http://localhost:3001/api/proxy-video?url=${encodeURIComponent(segmentedVideoUrl)}`;
-
-      // Complete
+      // Complete — mask comes back as a data URL, no proxy needed
       setStatus('Complete!');
       setProgress(100);
 
-      onVideoProcessed(originalVideoUrl, proxiedUrl);
+      onVideoProcessed(originalVideoUrl, maskVideoUrl);
 
       // Reset after a short delay
       setTimeout(() => {

@@ -1,5 +1,3 @@
-import type { ReplicatePrediction } from '../types/pose.types';
-
 const BACKEND_URL = 'http://localhost:3001';
 
 export const segmentVideo = async (
@@ -11,7 +9,7 @@ export const segmentVideo = async (
 
     const videoDataUrl = await fileToDataUrl(videoFile);
 
-    onProgress?.('Uploading video to backend...', 10);
+    onProgress?.('Uploading video & running segmentation...', 10);
 
     const response = await fetch(`${BACKEND_URL}/api/segment-video`, {
       method: 'POST',
@@ -23,28 +21,20 @@ export const segmentVideo = async (
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Failed to start segmentation');
+      throw new Error(error.error || 'Failed to segment video');
     }
 
-    const { predictionId } = await response.json();
+    onProgress?.('Receiving mask video...', 80);
 
-    onProgress?.('Processing video...', 30);
+    const { maskVideoUrl } = await response.json();
 
-    const result = await pollPrediction(predictionId, (status) => {
-      onProgress?.(status, status === 'processing' ? 60 : 30);
-    });
-
-    if (result.status === 'failed') {
-      throw new Error(result.error || 'Video segmentation failed');
-    }
-
-    if (!result.output) {
-      throw new Error('No output received from segmentation');
+    if (!maskVideoUrl) {
+      throw new Error('No mask video received from segmentation');
     }
 
     onProgress?.('Complete!', 100);
 
-    return result.output as string;
+    return maskVideoUrl;
   } catch (error) {
     console.error('Error segmenting video:', error);
     throw error;
@@ -60,39 +50,12 @@ const fileToDataUrl = (file: File): Promise<string> => {
   });
 };
 
-const pollPrediction = async (
-  predictionId: string,
-  onStatusChange?: (status: string) => void
-): Promise<ReplicatePrediction> => {
-  let prediction: ReplicatePrediction;
-
-  while (true) {
-    const response = await fetch(`${BACKEND_URL}/api/prediction/${predictionId}`);
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch prediction status');
-    }
-
-    prediction = await response.json();
-
-    if (prediction.status !== 'starting' && prediction.status !== 'processing') {
-      break;
-    }
-
-    onStatusChange?.(prediction.status);
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-
-  return prediction;
-};
-
-export const isReplicateConfigured = async (): Promise<boolean> => {
+export const isBackendConfigured = async (): Promise<boolean> => {
   try {
     const response = await fetch(`${BACKEND_URL}/health`);
     if (!response.ok) return false;
     const data = await response.json();
-    return data.replicate === true;
+    return data.modal === true;
   } catch (error) {
     return false;
   }

@@ -1,12 +1,14 @@
 import express from 'express';
 import cors from 'cors';
-import Replicate from 'replicate';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const app = express();
 const port = 3001;
+
+// Modal endpoint URL - set after deploying with `modal deploy modal_sam2.py`
+const MODAL_ENDPOINT_URL = process.env.MODAL_ENDPOINT_URL;
 
 app.use(cors({
   origin: '*',
@@ -16,14 +18,11 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN,
-});
-
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', replicate: !!process.env.REPLICATE_API_TOKEN });
+  res.json({ status: 'ok', modal: !!MODAL_ENDPOINT_URL });
 });
 
+// Single synchronous endpoint — no more polling
 app.post('/api/segment-video', async (req, res) => {
   try {
     const { videoDataUrl } = req.body;
@@ -32,62 +31,42 @@ app.post('/api/segment-video', async (req, res) => {
       return res.status(400).json({ error: 'No video data provided' });
     }
 
-    console.log('Starting video segmentation...');
+    if (!MODAL_ENDPOINT_URL) {
+      return res.status(500).json({ error: 'MODAL_ENDPOINT_URL not configured' });
+    }
 
-    const prediction = await replicate.predictions.create({
-      version: '8cbab4c2a3133e679b5b863b80527f6b5c751ec7b33681b7e0b7c79c749df961',
-      input: {
-        video: videoDataUrl,
-        prompt: 'person',
-        mask_only: true,
-      },
+    console.log('Starting video segmentation via Modal...');
+    const startTime = Date.now();
+
+    const response = await fetch(MODAL_ENDPOINT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_base64: videoDataUrl }),
     });
 
-    console.log('Prediction created:', prediction.id);
-    res.json({ predictionId: prediction.id });
-  } catch (error) {
-    console.error('Error creating prediction:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/prediction/:id', async (req, res) => {
-  try {
-    const prediction = await replicate.predictions.get(req.params.id);
-    res.json(prediction);
-  } catch (error) {
-    console.error('Error fetching prediction:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/proxy-video', async (req, res) => {
-  try {
-    const videoUrl = req.query.url;
-    if (!videoUrl) {
-      return res.status(400).json({ error: 'No URL provided' });
-    }
-
-    console.log('Proxying video from:', videoUrl);
-
-    const response = await fetch(videoUrl);
-
     if (!response.ok) {
-      throw new Error(`Failed to fetch video: ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Modal returned ${response.status}: ${errorText}`);
     }
 
-    res.setHeader('Content-Type', response.headers.get('content-type') || 'video/mp4');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const result = await response.json();
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`Segmentation complete in ${elapsed}s (${result.num_frames} frames)`);
 
-    const buffer = await response.arrayBuffer();
-    res.send(Buffer.from(buffer));
+    if (result.error) {
+      throw new Error(result.error);
+    }
+
+    // Return the mask video as a data URL so frontend can use it directly
+    const maskDataUrl = `data:video/mp4;base64,${result.mask_video_base64}`;
+    res.json({ maskVideoUrl: maskDataUrl });
   } catch (error) {
-    console.error('Error proxying video:', error);
+    console.error('Error in segmentation:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.listen(port, () => {
   console.log(`Backend server running at http://localhost:${port}`);
-  console.log(`Replicate API token configured: ${!!process.env.REPLICATE_API_TOKEN}`);
+  console.log(`Modal endpoint configured: ${!!MODAL_ENDPOINT_URL}`);
 });

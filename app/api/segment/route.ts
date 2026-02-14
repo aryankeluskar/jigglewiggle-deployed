@@ -1,19 +1,20 @@
 import { NextRequest } from "next/server";
-import Replicate from "replicate";
-import { readFile, access } from "fs/promises";
+import { readFile, writeFile, access, mkdir } from "fs/promises";
 import path from "path";
 
+export const maxDuration = 600; // 10 minutes
+
 const VIDEO_DIR = "/tmp/jigglewiggle";
+const MODAL_ENDPOINT_URL = process.env.MODAL_ENDPOINT_URL;
 
 function maskPath(videoId: string) {
   return path.join(VIDEO_DIR, `${videoId}_mask.mp4`);
 }
 
 export async function POST(request: NextRequest) {
-  const token = process.env.REPLICATE_API_TOKEN;
-  if (!token) {
+  if (!MODAL_ENDPOINT_URL) {
     return Response.json(
-      { error: "REPLICATE_API_TOKEN not configured" },
+      { error: "MODAL_ENDPOINT_URL not configured" },
       { status: 503 }
     );
   }
@@ -46,26 +47,52 @@ export async function POST(request: NextRequest) {
 
   try {
     const buffer = await readFile(filePath);
+    const videoBase64 = buffer.toString("base64");
 
-    const replicate = new Replicate({ auth: token });
+    console.log(
+      `[segment] Starting Modal segmentation for ${videoId} (${buffer.length} bytes)`
+    );
 
-    const videoBlob = new Blob([buffer], { type: "video/mp4" });
+    const startTime = Date.now();
 
-    console.log(`[segment] Starting segmentation for ${videoId} (${buffer.length} bytes)`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 min
 
-    const prediction = await replicate.predictions.create({
-      version:
-        "8cbab4c2a3133e679b5b863b80527f6b5c751ec7b33681b7e0b7c79c749df961",
-      input: {
-        video: videoBlob,
-        prompt: "person",
-        mask_only: true,
-      },
+    const modalRes = await fetch(MODAL_ENDPOINT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_base64: videoBase64 }),
+      signal: controller.signal,
     });
 
-    console.log(`[segment] Prediction created: ${prediction.id}, status: ${prediction.status}`);
+    clearTimeout(timeout);
 
-    return Response.json({ predictionId: prediction.id });
+    if (!modalRes.ok) {
+      const errorText = await modalRes.text();
+      throw new Error(`Modal returned ${modalRes.status}: ${errorText}`);
+    }
+
+    const result = await modalRes.json();
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    if (result.error) {
+      throw new Error(result.error);
+    }
+
+    console.log(
+      `[segment] Modal segmentation done in ${elapsed}s (${result.num_frames} frames)`
+    );
+
+    // Decode and save mask video to disk
+    const maskBuffer = Buffer.from(result.mask_video_base64, "base64");
+    await mkdir(VIDEO_DIR, { recursive: true });
+    await writeFile(maskPath(videoId), maskBuffer);
+
+    console.log(
+      `[segment] Saved mask for ${videoId} (${maskBuffer.length} bytes)`
+    );
+
+    return Response.json({ cached: true });
   } catch (err) {
     console.error("[segment] Segmentation error:", err);
     return Response.json(
@@ -76,6 +103,6 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  const configured = !!process.env.REPLICATE_API_TOKEN;
+  const configured = !!MODAL_ENDPOINT_URL;
   return Response.json({ configured });
 }
