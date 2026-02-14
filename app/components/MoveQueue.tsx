@@ -3,11 +3,11 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { drawSkeleton } from "../lib/pose";
 import type { NormalizedLandmark } from "../lib/pose";
-import type { PoseTimeline } from "../lib/videoPoseExtractor";
+import type { StripPoseTimeline } from "../lib/videoPoseExtractor";
 import { normalizePose, comparePoses, classifyPose } from "../lib/poseComparison";
 
 type Props = {
-  timeline: PoseTimeline;
+  timeline: StripPoseTimeline;
   currentTime: number;
   livePoseRef: React.RefObject<NormalizedLandmark[] | null>;
   onSeek: (time: number) => void;
@@ -15,7 +15,6 @@ type Props = {
 
 const CARD_W = 80;
 const CARD_H = 120;
-const SAMPLE_INTERVAL = 2;
 const VISIBLE_CARDS = 7;
 
 const REF_STYLE = {
@@ -38,30 +37,26 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
   const cardScoresRef = useRef<Map<number, number>>(new Map());
   const [cardScores, setCardScores] = useState<Map<number, number>>(new Map());
 
-  // Sample timeline at 2s intervals + classify each pose
+  // Timeline is already sampled (e.g. every 2s) — just classify
   const samples = useMemo(() => {
-    const result: { index: number; time: number; label: string }[] = [];
-    for (let t = 0; t < timeline.length; t++) {
-      const frame = timeline[t];
-      if (result.length === 0 || frame.time - result[result.length - 1].time >= SAMPLE_INTERVAL) {
-        const label = frame.landmarks.length > 0 ? classifyPose(frame.landmarks) : "—";
-        result.push({ index: t, time: frame.time, label });
-      }
-    }
-    return result;
+    return timeline.map((frame, idx) => ({
+      idx,
+      time: frame.time,
+      label: frame.landmarks.length > 0 ? classifyPose(frame.landmarks) : "—",
+    }));
   }, [timeline]);
 
   // Pre-render mini skeletons onto canvases once
   useEffect(() => {
     for (const sample of samples) {
-      const canvas = canvasRefs.current.get(sample.index);
+      const canvas = canvasRefs.current.get(sample.idx);
       if (!canvas) continue;
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
 
-      const frame = timeline[sample.index];
-      if (frame.landmarks.length > 0) {
-        drawSkeleton(ctx, frame.landmarks, CARD_W, CARD_H, REF_STYLE);
+      const landmarks = timeline[sample.idx]?.landmarks ?? [];
+      if (landmarks.length > 0) {
+        drawSkeleton(ctx, landmarks, CARD_W, CARD_H, REF_STYLE);
       } else {
         ctx.clearRect(0, 0, CARD_W, CARD_H);
         ctx.fillStyle = "rgba(255,255,255,0.1)";
@@ -91,13 +86,13 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
 
     if (prevIdx !== currentSampleIdx && prevIdx < samples.length) {
       const prevSample = samples[prevIdx];
-      const canvas = canvasRefs.current.get(prevSample.index);
+      const canvas = canvasRefs.current.get(prevSample.idx);
       if (canvas) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          const frame = timeline[prevSample.index];
-          if (frame.landmarks.length > 0) {
-            drawSkeleton(ctx, frame.landmarks, CARD_W, CARD_H, REF_STYLE);
+          const landmarks = timeline[prevSample.idx]?.landmarks ?? [];
+          if (landmarks.length > 0) {
+            drawSkeleton(ctx, landmarks, CARD_W, CARD_H, REF_STYLE);
           }
         }
       }
@@ -105,13 +100,13 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
 
     const sample = samples[currentSampleIdx];
     if (sample) {
-      const canvas = canvasRefs.current.get(sample.index);
+      const canvas = canvasRefs.current.get(sample.idx);
       if (canvas) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          const frame = timeline[sample.index];
-          if (frame.landmarks.length > 0) {
-            const normRef = normalizePose(frame.landmarks);
+          const landmarks = timeline[sample.idx]?.landmarks ?? [];
+          if (landmarks.length > 0) {
+            const normRef = normalizePose(landmarks);
             drawSkeleton(ctx, normRef, CARD_W, CARD_H, REF_STYLE);
           }
         }
@@ -134,7 +129,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
       if (canvas && live && sample) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          const refLandmarks = timeline[sample.index].landmarks;
+          const refLandmarks = timeline[sample.idx]?.landmarks ?? [];
 
           if (refLandmarks.length > 0 && live.length > 0) {
             const normRef = normalizePose(refLandmarks);
@@ -223,7 +218,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
 
           return (
             <div
-              key={sample.index}
+              key={sample.idx}
               className="flex flex-col items-center flex-shrink-0 transition-all duration-300 cursor-pointer"
               style={{ opacity }}
               onClick={() => handleCardClick(sample.time)}
@@ -241,7 +236,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
               >
                 <canvas
                   ref={(el) => {
-                    if (el) canvasRefs.current.set(sample.index, el);
+                    if (el) canvasRefs.current.set(sample.idx, el);
                   }}
                   width={CARD_W}
                   height={CARD_H}
