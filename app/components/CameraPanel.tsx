@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { drawSkeleton, loadPose } from "../lib/pose";
 import { extractOutline } from "../lib/outlineExtractor";
+import { captureVideoFrame } from "../lib/frameCapture";
 import type { NormalizedLandmark, PoseResults } from "../lib/pose";
 
 type Props = {
@@ -12,6 +13,7 @@ type Props = {
   playbackRate?: number;
   isReferencePaused?: boolean;
   referenceVideoAspectRatio?: number;
+  webcamCaptureRef?: React.MutableRefObject<(() => string | null) | null>;
 };
 
 const NEON_SKELETON_STYLE = {
@@ -24,7 +26,7 @@ const NEON_SKELETON_STYLE = {
   clear: true,
 } as const;
 
-export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, playbackRate = 1, isReferencePaused = false, referenceVideoAspectRatio = 16/9 }: Props) {
+export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, playbackRate = 1, isReferencePaused = false, referenceVideoAspectRatio = 16/9, webcamCaptureRef }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -184,6 +186,10 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
+          if (webcamCaptureRef) {
+            webcamCaptureRef.current = () =>
+              videoRef.current ? captureVideoFrame(videoRef.current, false) : null;
+          }
         }
 
         const pose = await loadPose();
@@ -224,7 +230,7 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
         stream.getTracks().forEach((t) => t.stop());
       }
     };
-  }, [onPose, processFrame]);
+  }, [onPose, processFrame, webcamCaptureRef]);
 
   return (
     <div className="relative w-full h-full rounded overflow-hidden border border-neon-magenta/15 bg-black glow-magenta">

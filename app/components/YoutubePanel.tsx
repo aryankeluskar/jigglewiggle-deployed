@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useImperativeHandle, useRef } from "react";
+import { captureVideoFrame } from "../lib/frameCapture";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
@@ -12,6 +13,7 @@ export type YoutubePanelHandle = {
   setPlaybackRate: (rate: number) => void;
   isPaused: () => boolean;
   getVideoAspectRatio: () => number;
+  captureFrame: () => string | null;
 };
 
 type Props = {
@@ -77,6 +79,8 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
       if (!video || !video.videoWidth || !video.videoHeight) return 16/9;
       return video.videoWidth / video.videoHeight;
     },
+    captureFrame: () =>
+      videoRef.current ? captureVideoFrame(videoRef.current, false) : null,
   }));
 
   if (!videoId || downloadStatus === "idle") {
