@@ -3,12 +3,14 @@
 import { useEffect, useRef, useCallback } from "react";
 import { drawSkeleton, loadPose } from "../lib/pose";
 import { extractOutline } from "../lib/outlineExtractor";
+import { captureVideoFrame } from "../lib/frameCapture";
 import type { NormalizedLandmark, PoseResults } from "../lib/pose";
 
 type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
   segmentedVideoUrl?: string | null;
   referenceVideoTime?: number;
+  webcamCaptureRef?: React.MutableRefObject<(() => string | null) | null>;
 };
 
 const NEON_SKELETON_STYLE = {
@@ -21,7 +23,7 @@ const NEON_SKELETON_STYLE = {
   clear: true,
 } as const;
 
-export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime }: Props) {
+export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, webcamCaptureRef }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -145,6 +147,10 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
+          if (webcamCaptureRef) {
+            webcamCaptureRef.current = () =>
+              videoRef.current ? captureVideoFrame(videoRef.current, false) : null;
+          }
         }
 
         const pose = await loadPose();

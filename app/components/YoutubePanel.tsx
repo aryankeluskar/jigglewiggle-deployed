@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useImperativeHandle, useRef } from "react";
+import { captureVideoFrame } from "../lib/frameCapture";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
@@ -9,6 +10,7 @@ type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailabl
 export type YoutubePanelHandle = {
   getCurrentTime: () => number;
   seekTo: (time: number) => void;
+  captureFrame: () => string | null;
 };
 
 type Props = {
@@ -65,6 +67,8 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
     seekTo: (time: number) => {
       if (videoRef.current) videoRef.current.currentTime = time;
     },
+    captureFrame: () =>
+      videoRef.current ? captureVideoFrame(videoRef.current, false) : null,
   }));
 
   if (!videoId || downloadStatus === "idle") {

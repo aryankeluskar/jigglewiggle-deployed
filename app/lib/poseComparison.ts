@@ -23,6 +23,13 @@ export type PoseComparisonResult = {
   connectionColors: Map<string, string>;
 };
 
+export type DetailedComparison = {
+  matchScore: number;
+  limbScores: Record<string, number>;
+  worstLimb: string;
+  refPoseLabel: string;
+};
+
 const COLOR_GREEN = "#22c55e";
 const COLOR_YELLOW = "#eab308";
 const COLOR_RED = "#ef4444";
@@ -118,6 +125,68 @@ export function classifyPose(landmarks: NormalizedLandmark[]): string {
   if (crouching) return "Crouch";
   if (wideStance) return "Wide stance";
   return "Neutral";
+}
+
+/**
+ * Find the closest frame in a timeline to the given timestamp.
+ */
+export function findClosestFrame(
+  timeline: { time: number; landmarks: NormalizedLandmark[] }[],
+  time: number
+): { time: number; landmarks: NormalizedLandmark[] } | null {
+  if (timeline.length === 0) return null;
+
+  let best = timeline[0];
+  let bestDist = Math.abs(best.time - time);
+
+  for (let i = 1; i < timeline.length; i++) {
+    const d = Math.abs(timeline[i].time - time);
+    if (d < bestDist) {
+      best = timeline[i];
+      bestDist = d;
+    }
+  }
+
+  return best.landmarks.length > 0 ? best : null;
+}
+
+/**
+ * Detailed pose comparison returning per-limb scores and worst limb.
+ */
+export function comparePosesDetailed(
+  refLandmarks: NormalizedLandmark[],
+  liveLandmarks: NormalizedLandmark[]
+): DetailedComparison | null {
+  const refNorm = normalizePose(refLandmarks);
+  const liveNorm = normalizePose(liveLandmarks);
+
+  const limbScores: Record<string, number> = {};
+
+  for (const [limb, joints] of Object.entries(LIMB_JOINTS)) {
+    const distances: number[] = [];
+    for (const idx of joints) {
+      const r = refNorm[idx];
+      const l = liveNorm[idx];
+      if (!r || !l) continue;
+      if ((r.visibility ?? 0) < 0.3 || (l.visibility ?? 0) < 0.3) continue;
+      distances.push(dist(r, l));
+    }
+    if (distances.length === 0) {
+      limbScores[limb] = 50; // unknown — neutral score
+    } else {
+      const avg = distances.reduce((s, d) => s + d, 0) / distances.length;
+      limbScores[limb] = Math.max(0, Math.min(100, Math.round(100 * (1 - avg / (THRESH_OK * 2)))));
+    }
+  }
+
+  const entries = Object.entries(limbScores);
+  if (entries.length === 0) return null;
+
+  const matchScore = Math.round(entries.reduce((s, [, v]) => s + v, 0) / entries.length);
+  const worstLimb = entries.reduce((worst, curr) => curr[1] < worst[1] ? curr : worst)[0];
+  const refPoseLabel = classifyPose(refNorm);
+
+  return { matchScore, limbScores, worstLimb, refPoseLabel };
 }
 
 /**

@@ -17,17 +17,28 @@ const MAX_HISTORY = 6;
 let lastRequestTs = 0;
 let pendingRequest = false;
 let lastMessage = "";
-
-const MIN_INTERVAL_MS = 3000;
+let lastMessageSessionSeconds = 0;
+let lastSummaryScore = 50;
+let lastSummaryTrend: "improving" | "declining" | "steady" = "steady";
 
 export type CoachResult = { message: string; audio?: string };
+
+function getAdaptiveInterval(): number {
+  if (lastSummaryTrend === "declining" || lastSummaryScore < 40) return 2000;
+  if (lastSummaryScore >= 80) return 5000;
+  return 3000;
+}
 
 export async function getCoachMessage(
   summary: PoseSummary
 ): Promise<CoachResult | null> {
   const now = Date.now();
 
-  if (now - lastRequestTs < MIN_INTERVAL_MS) return null;
+  lastSummaryScore = summary.score;
+  lastSummaryTrend = summary.trend;
+
+  const interval = getAdaptiveInterval();
+  if (now - lastRequestTs < interval) return null;
   if (pendingRequest) return null;
   if (isSpeechPlaying()) return null;
   if (summary.score === 0 && lastMessage.includes("no pose")) return null;
@@ -54,7 +65,9 @@ export async function getCoachMessage(
     const message: string = data.message ?? "Keep going!";
     const audio: string | undefined = data.audio;
 
-    if (message === lastMessage) {
+    // Only suppress duplicate if same message AND less than 10s elapsed
+    const sessionDelta = summary.sessionSeconds - lastMessageSessionSeconds;
+    if (message === lastMessage && sessionDelta < 10) {
       pendingRequest = false;
       return null;
     }
@@ -73,6 +86,7 @@ export async function getCoachMessage(
     }
 
     lastMessage = message;
+    lastMessageSessionSeconds = summary.sessionSeconds;
     pendingRequest = false;
     return { message, audio };
   } catch (err) {
@@ -86,6 +100,9 @@ export function resetCoach(): void {
   conversationHistory.length = 0;
   lastRequestTs = 0;
   lastMessage = "";
+  lastMessageSessionSeconds = 0;
+  lastSummaryScore = 50;
+  lastSummaryTrend = "steady";
   pendingRequest = false;
 }
 

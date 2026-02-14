@@ -28,6 +28,12 @@ export type PoseSummary = {
   issues: string[];
   trend: "improving" | "declining" | "steady";
   sessionSeconds: number;
+  reference?: {
+    matchScore: number;
+    limbScores: Record<string, number>;
+    worstLimb: string;
+    refPoseLabel: string;
+  };
 };
 
 // --- Internal state ---

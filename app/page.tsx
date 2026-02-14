@@ -12,8 +12,11 @@ import { extractStripPoses } from "./lib/videoPoseExtractor";
 import type { StripPoseTimeline } from "./lib/videoPoseExtractor";
 import { computeScore, buildPoseSummary } from "./lib/scoring";
 import { getCoachMessage } from "./lib/coach";
+import { findClosestFrame, comparePosesDetailed } from "./lib/poseComparison";
+import type { DetailedComparison } from "./lib/poseComparison";
 import { speak } from "./lib/speech";
 import { segmentVideo, isSegmentationAvailable } from "./lib/segmentation";
+import { startGroqScoring, resetGroqScoring } from "./lib/groqScoring";
 import type { NormalizedLandmark } from "./lib/pose";
 
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
@@ -22,6 +25,19 @@ type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailabl
 
 const STRIP_POSE_CACHE_VERSION = 4;
 const STRIP_POSE_INTERVAL_SECONDS = 2;
+
+// Scoring blend constants
+const SCORE_EMA_ALPHA = 0.15;
+const MAX_REF_DISTANCE_SEC = 3.0;
+const SCORE_DEAD_ZONE = 2;
+
+const LIMB_LABELS: Record<string, string> = {
+  rightArm: "Right arm",
+  leftArm: "Left arm",
+  rightLeg: "Right leg",
+  leftLeg: "Left leg",
+  torso: "Torso",
+};
 
 function stripPoseCacheKey(videoId: string) {
   return `stripPoses:v${STRIP_POSE_CACHE_VERSION}:${videoId}:i${STRIP_POSE_INTERVAL_SECONDS}`;
@@ -61,11 +77,15 @@ export default function Home() {
   const [segmentationStatus, setSegmentationStatus] = useState<SegmentationStatus>("idle");
   const [segmentationProgress, setSegmentationProgress] = useState(0);
   const [segmentedVideoUrl, setSegmentedVideoUrl] = useState<string | null>(null);
+  const [groqFeedback, setGroqFeedback] = useState("");
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
+  const webcamCaptureRef = useRef<(() => string | null) | null>(null);
   const livePoseRef = useRef<NormalizedLandmark[] | null>(null);
   const stripPoseCacheRef = useRef<Map<string, StripPoseTimeline>>(new Map());
   const segmentationStartedRef = useRef(false);
+  const smoothedScoreRef = useRef(0);
+  const groqAnchorRef = useRef<number | null>(null);
 
   // Score aura class
   const getAuraClass = () => {
@@ -102,6 +122,10 @@ export default function Home() {
       setSegmentationProgress(0);
       setSegmentedVideoUrl(null);
       segmentationStartedRef.current = false;
+      groqAnchorRef.current = null;
+      smoothedScoreRef.current = 0;
+      setGroqFeedback("");
+      resetGroqScoring();
     }
 
     setVideoId(id);
@@ -267,15 +291,84 @@ export default function Home() {
     return () => cancelAnimationFrame(raf);
   }, [extractionStatus, poseTimeline, segmentationReady]);
 
+  // Start Groq vision scoring when video is ready
+  useEffect(() => {
+    if (extractionStatus !== "done" || !poseTimeline || !segmentationReady) return;
+
+    const cleanup = startGroqScoring(
+      () => youtubePanelRef.current?.captureFrame() ?? null,
+      () => webcamCaptureRef.current?.() ?? null,
+      (result) => {
+        groqAnchorRef.current = result.smoothedScore;
+        setGroqFeedback(result.feedback);
+      },
+      3000
+    );
+
+    return () => {
+      cleanup();
+      groqAnchorRef.current = null;
+    };
+  }, [extractionStatus, poseTimeline, segmentationReady]);
+
   // Stable callback ref to avoid re-mounting CameraPanel
   const onPoseRef = useRef<(landmarks: NormalizedLandmark[] | null) => void>(null);
   onPoseRef.current = (landmarks: NormalizedLandmark[] | null) => {
     livePoseRef.current = landmarks;
 
+    // 1. Heuristic score (always computed — feeds body metrics for coach summary)
     const frame = computeScore(landmarks);
-    setScore(frame.score);
+    const issues = [...frame.issues];
 
-    const summary = buildPoseSummary(landmarks, frame);
+    // 2. Geometric reference comparison (every frame, when timeline available)
+    let detailed: DetailedComparison | null = null;
+    if (poseTimeline && landmarks && landmarks.length >= 33) {
+      const refFrame = findClosestFrame(poseTimeline, currentVideoTime);
+      if (refFrame && Math.abs(refFrame.time - currentVideoTime) <= MAX_REF_DISTANCE_SEC) {
+        detailed = comparePosesDetailed(refFrame.landmarks, landmarks);
+      }
+    }
+
+    // 3. Blend scores
+    let finalScore: number;
+    if (detailed) {
+      const geoScore = detailed.matchScore;
+      const groqAnchor = groqAnchorRef.current;
+      if (groqAnchor !== null) {
+        finalScore = Math.round(0.5 * geoScore + 0.4 * groqAnchor + 0.1 * frame.score);
+      } else {
+        finalScore = Math.round(0.8 * geoScore + 0.2 * frame.score);
+      }
+      finalScore = Math.max(0, Math.min(100, finalScore));
+
+      // Add worst-limb feedback
+      if (detailed.limbScores[detailed.worstLimb] < 60) {
+        const label = LIMB_LABELS[detailed.worstLimb] ?? detailed.worstLimb;
+        issues.unshift(`${label} off from reference`);
+      }
+    } else {
+      // No reference available — use heuristic only
+      finalScore = frame.score;
+    }
+
+    // 4. EMA smoothing + dead zone to suppress jitter
+    const smoothed = smoothedScoreRef.current * (1 - SCORE_EMA_ALPHA) + finalScore * SCORE_EMA_ALPHA;
+    smoothedScoreRef.current = smoothed;
+    const rounded = Math.round(smoothed);
+    if (Math.abs(rounded - score) >= SCORE_DEAD_ZONE) {
+      setScore(rounded);
+    }
+
+    // 5. Build summary for LLM coach
+    const summary = buildPoseSummary(landmarks, {
+      ...frame,
+      score: Math.round(smoothed),
+      issues,
+    });
+    if (detailed) {
+      summary.reference = detailed;
+    }
+
     getCoachMessage(summary).then((result) => {
       if (result) {
         setCoachMsg(result.message);
@@ -308,7 +401,7 @@ export default function Home() {
 
 
       {/* Header — Neon Marquee */}
-      <header className="flex-shrink-0 px-6 py-3 flex items-center justify-between relative z-10">
+      <header className="flex-shrink-0 px-6 py-3 flex items-center justify-between relative z-20">
         <div className="flex items-center gap-4">
           <h1
             className="text-xl tracking-[0.2em] uppercase neon-title animate-flicker"
@@ -363,6 +456,7 @@ export default function Home() {
             onPose={handlePose}
             segmentedVideoUrl={segmentedVideoUrl}
             referenceVideoTime={currentVideoTime}
+            webcamCaptureRef={webcamCaptureRef}
           />
         </div>
       </main>
@@ -381,7 +475,7 @@ export default function Home() {
 
       {/* Coach Panel */}
       <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
-        <CoachPanel score={score} message={coachMsg} />
+        <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} />
       </footer>
     </div>
   );
