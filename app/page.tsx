@@ -609,12 +609,6 @@ export default function Home() {
           />
         </div>
 
-        <div
-          className="text-[9px] tracking-[0.2em] uppercase px-3 py-1.5 border border-neon-cyan/20 neon-text-cyan opacity-50"
-          style={{ fontFamily: "var(--font-audiowide)" }}
-        >
-          TreeHacks &apos;26
-        </div>
       </header>
 
       {/* Neon Divider */}
