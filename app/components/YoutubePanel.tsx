@@ -11,6 +11,7 @@ export type YoutubePanelHandle = {
   getCurrentTime: () => number;
   seekTo: (time: number) => void;
   captureFrame: () => string | null;
+  togglePlayPause: () => void;
 };
 
 type Props = {
@@ -69,6 +70,11 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
     },
     captureFrame: () =>
       videoRef.current ? captureVideoFrame(videoRef.current, false) : null,
+    togglePlayPause: () => {
+      const v = videoRef.current;
+      if (!v) return;
+      v.paused ? v.play() : v.pause();
+    },
   }));
 
   if (!videoId || downloadStatus === "idle") {
