@@ -40,9 +40,15 @@ const THRESH_OK = 0.12;
 /**
  * Normalize a pose so both reference and live skeletons align visually.
  * Centers hip midpoint at (0.5, 0.6) and scales by torso length.
+ *
+ * @param aspectRatio  width/height of the source video. Used to correct
+ *   x-coordinates to a square coordinate space so poses from different
+ *   aspect ratios (e.g. 16:9 Zoom vs 4:3 webcam) are comparable.
+ *   Defaults to 1 (square / no correction).
  */
 export function normalizePose(
-  landmarks: NormalizedLandmark[]
+  landmarks: NormalizedLandmark[],
+  aspectRatio: number = 1
 ): NormalizedLandmark[] {
   const lHip = landmarks[23];
   const rHip = landmarks[24];
@@ -53,10 +59,24 @@ export function normalizePose(
     return landmarks;
   }
 
-  const hipMidX = (lHip.x + rHip.x) / 2;
-  const hipMidY = (lHip.y + rHip.y) / 2;
-  const shoulderMidX = (lShoulder.x + rShoulder.x) / 2;
-  const shoulderMidY = (lShoulder.y + rShoulder.y) / 2;
+  // First, correct x-coordinates to a square space.
+  // MediaPipe returns (x, y) in [0,1] relative to image dims.
+  // If aspect ratio is 16:9 (≈1.78), x spans a wider physical range
+  // than y. Multiplying x by aspectRatio maps to square physical space.
+  const corrected = landmarks.map((lm) => ({
+    ...lm,
+    x: lm.x * aspectRatio,
+  }));
+
+  const cLHip = corrected[23];
+  const cRHip = corrected[24];
+  const cLShoulder = corrected[11];
+  const cRShoulder = corrected[12];
+
+  const hipMidX = (cLHip.x + cRHip.x) / 2;
+  const hipMidY = (cLHip.y + cRHip.y) / 2;
+  const shoulderMidX = (cLShoulder.x + cRShoulder.x) / 2;
+  const shoulderMidY = (cLShoulder.y + cRShoulder.y) / 2;
 
   const torsoLen = Math.sqrt(
     (shoulderMidX - hipMidX) ** 2 + (shoulderMidY - hipMidY) ** 2
@@ -68,7 +88,7 @@ export function normalizePose(
   const cx = 0.5;
   const cy = 0.6;
 
-  return landmarks.map((lm) => ({
+  return corrected.map((lm) => ({
     x: (lm.x - hipMidX) * scale + cx,
     y: (lm.y - hipMidY) * scale + cy,
     z: lm.z,
@@ -152,13 +172,18 @@ export function findClosestFrame(
 
 /**
  * Detailed pose comparison returning per-limb scores and worst limb.
+ *
+ * @param refAspectRatio  width/height of the reference video (e.g. Zoom 16:9 → 1.78)
+ * @param liveAspectRatio width/height of the live webcam (e.g. 4:3 → 1.33)
  */
 export function comparePosesDetailed(
   refLandmarks: NormalizedLandmark[],
-  liveLandmarks: NormalizedLandmark[]
+  liveLandmarks: NormalizedLandmark[],
+  refAspectRatio: number = 1,
+  liveAspectRatio: number = 1
 ): DetailedComparison | null {
-  const refNorm = normalizePose(refLandmarks);
-  const liveNorm = normalizePose(liveLandmarks);
+  const refNorm = normalizePose(refLandmarks, refAspectRatio);
+  const liveNorm = normalizePose(liveLandmarks, liveAspectRatio);
 
   const limbScores: Record<string, number> = {};
 

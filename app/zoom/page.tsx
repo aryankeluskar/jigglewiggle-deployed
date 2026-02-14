@@ -40,9 +40,11 @@ export default function ZoomApp() {
   const [zoomError, setZoomError] = useState("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Track both poses
+  // Track both poses and their source video aspect ratios
   const remotePoseRef = useRef<NormalizedLandmark[] | null>(null);
   const selfPoseRef = useRef<NormalizedLandmark[] | null>(null);
+  const remoteAspectRef = useRef(16 / 9); // Zoom is typically 16:9
+  const selfAspectRef = useRef(4 / 3);    // Webcam is typically 4:3
   const smoothedScoreRef = useRef(0);
 
   // Core comparison logic — runs on every frame from either source
@@ -65,8 +67,13 @@ export default function ZoomApp() {
       return;
     }
 
-    // 1. Detailed geometric comparison (per-limb, normalized)
-    const detailed = comparePosesDetailed(remoteLm, selfLm);
+    // 1. Detailed geometric comparison (per-limb, normalized with aspect ratio correction)
+    const detailed = comparePosesDetailed(
+      remoteLm,
+      selfLm,
+      remoteAspectRef.current,
+      selfAspectRef.current
+    );
     if (!detailed) {
       setComparison({
         similarity: 0,
@@ -290,11 +297,14 @@ export default function ZoomApp() {
             </span>
           </h1>
         </header>
-        <main className="flex-1 flex gap-4 p-4 min-h-0">
-          <div className="flex-1 min-w-0">
-            <ScreenCapturePanel onPose={handleRemotePose} />
+        <main className="flex-1 flex gap-4 p-4 min-h-0 items-center justify-center">
+          <div className="flex-1 min-w-0" style={{ aspectRatio: "16/9", maxHeight: "100%" }}>
+            <ScreenCapturePanel
+              onPose={handleRemotePose}
+              onAspectRatio={(r) => { remoteAspectRef.current = r; }}
+            />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0" style={{ aspectRatio: "16/9", maxHeight: "100%" }}>
             <CameraPanel onPose={handleSelfPose} badge="YOU" />
           </div>
         </main>
@@ -402,12 +412,16 @@ export default function ZoomApp() {
         </div>
       )}
 
-      <main className="flex-1 flex gap-4 p-4 min-h-0">
-        <div className="flex-1 min-w-0 rounded-2xl overflow-hidden border border-white/10 bg-black">
-          <iframe ref={iframeRef} src="/zoom-embed.html" className="w-full h-full border-0"
-            allow="camera; microphone; display-capture; autoplay" style={{ minHeight: 400 }} />
+      <main className="flex-1 flex gap-4 p-4 min-h-0 items-center justify-center">
+        <div className="flex-1 min-w-0 rounded-2xl overflow-hidden border border-white/10 bg-black" style={{ aspectRatio: "16/9", maxHeight: "100%" }}>
+          <iframe
+            ref={iframeRef}
+            src="/zoom-embed.html"
+            className="w-full h-full border-0"
+            allow="camera; microphone; display-capture; autoplay"
+          />
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0" style={{ aspectRatio: "16/9", maxHeight: "100%" }}>
           <CameraPanel onPose={handleSelfPose} badge="YOU" />
         </div>
       </main>

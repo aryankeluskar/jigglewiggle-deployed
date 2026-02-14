@@ -1,24 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { loadPose, POSE_CONNECTIONS } from "../lib/pose";
-import type { NormalizedLandmark, PoseResults } from "../lib/pose";
+import { loadPose, POSE_CONNECTIONS } from "./pose";
+import type { NormalizedLandmark, PoseResults } from "./pose";
+import { withPoseLock } from "./poseMutex";
+import { LandmarkSmoother } from "./landmarkSmoother";
 
 type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
   onStop?: () => void;
+  onAspectRatio?: (ratio: number) => void;
 };
 
-export default function ScreenCapturePanel({ onPose, onStop }: Props) {
+export default function ScreenCapturePanel({ onPose, onStop, onAspectRatio }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const skeletonCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const activeRef = useRef(false);
   const animFrameRef = useRef<number>(0);
-  const poseRef = useRef<unknown>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const poseRef = useRef<any>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasSizeRef = useRef({ w: 0, h: 0 });
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const smootherRef = useRef(new LandmarkSmoother());
 
   const onPoseRef = useRef(onPose);
   onPoseRef.current = onPose;
@@ -27,8 +33,7 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
     if (!activeRef.current) return;
 
     const video = videoRef.current;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pose = poseRef.current as any;
+    const pose = poseRef.current;
 
     if (video && pose && video.readyState >= 2) {
       let offscreen = offscreenRef.current;
@@ -36,15 +41,19 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
         offscreen = document.createElement("canvas");
         offscreenRef.current = offscreen;
       }
-      offscreen.width = video.videoWidth || 640;
-      offscreen.height = video.videoHeight || 480;
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+      if (offscreen.width !== vw || offscreen.height !== vh) {
+        offscreen.width = vw;
+        offscreen.height = vh;
+      }
       const ctx = offscreen.getContext("2d");
       if (ctx) {
         ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
         try {
-          await pose.send({ image: offscreen });
-        } catch (err) {
-          console.warn("[ScreenCapture] pose.send error:", err);
+          await withPoseLock(() => pose.send({ image: offscreen }));
+        } catch {
+          // transient error
         }
       }
     }
@@ -52,6 +61,21 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
     if (activeRef.current) {
       animFrameRef.current = requestAnimationFrame(processFrame);
     }
+  }, []);
+
+  const stopCapture = useCallback(() => {
+    activeRef.current = false;
+    cancelAnimationFrame(animFrameRef.current);
+    smootherRef.current.reset();
+    poseRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCapturing(false);
   }, []);
 
   const startCapture = useCallback(async () => {
@@ -74,39 +98,45 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
         onStop?.();
       });
 
-      // videoRef is always mounted now, so this will work
       const video = videoRef.current!;
       video.srcObject = stream;
       await video.play().catch(() => {});
 
-      // Wait for actual video data
       await new Promise<void>((resolve) => {
         if (video.readyState >= 2) { resolve(); return; }
         video.addEventListener("loadeddata", () => resolve(), { once: true });
       });
 
-      console.log(`[ScreenCapture] Video ready: ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}`);
+      console.log(`[ScreenCapture] Video ready: ${video.videoWidth}x${video.videoHeight}`);
+
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        onAspectRatio?.(video.videoWidth / video.videoHeight);
+      }
 
       setCapturing(true);
 
-      // Load pose
-      console.log("[ScreenCapture] Loading MediaPipe Pose...");
+      console.log("[ScreenCapture] Loading own Pose instance...");
       const pose = await loadPose();
-      console.log("[ScreenCapture] Pose loaded successfully");
+      console.log("[ScreenCapture] Pose loaded");
       poseRef.current = pose;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (pose as any).onResults((results: PoseResults) => {
-        const landmarks = results.poseLandmarks ?? null;
-        console.log("[ScreenCapture] Pose results:", landmarks ? `${landmarks.length} landmarks` : "null");
+        const raw = results.poseLandmarks ?? null;
+        const landmarks = raw ? smootherRef.current.smooth(raw) : null;
         onPoseRef.current(landmarks);
 
         const canvas = skeletonCanvasRef.current;
         if (canvas && landmarks) {
           const ctx = canvas.getContext("2d");
           if (ctx) {
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
+            const w = canvas.offsetWidth;
+            const h = canvas.offsetHeight;
+            if (canvasSizeRef.current.w !== w || canvasSizeRef.current.h !== h) {
+              canvas.width = w;
+              canvas.height = h;
+              canvasSizeRef.current = { w, h };
+            }
             drawSkeletonNoMirror(ctx, landmarks, canvas.width, canvas.height);
           }
         }
@@ -122,20 +152,8 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
         setError("Could not start screen capture.");
       }
     }
-  }, [onStop, processFrame]);
-
-  const stopCapture = useCallback(() => {
-    activeRef.current = false;
-    cancelAnimationFrame(animFrameRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setCapturing(false);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onStop, processFrame, onAspectRatio, stopCapture]);
 
   useEffect(() => {
     return () => {
@@ -147,10 +165,8 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
     };
   }, []);
 
-  // ALWAYS render the video element so the ref is available in startCapture
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black">
-      {/* Video is always in DOM, hidden until capturing */}
       <video
         ref={videoRef}
         playsInline
@@ -162,7 +178,6 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
         className={`absolute inset-0 w-full h-full pointer-events-none ${capturing ? "" : "hidden"}`}
       />
 
-      {/* Overlay UI when capturing */}
       {capturing && (
         <>
           <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 px-3 py-1 rounded-full">
@@ -178,7 +193,6 @@ export default function ScreenCapturePanel({ onPose, onStop }: Props) {
         </>
       )}
 
-      {/* Start button when not capturing */}
       {!capturing && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
           <div className="text-center">

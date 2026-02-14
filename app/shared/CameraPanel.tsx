@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { registerPoseSource } from "./poseManager";
-import { drawSkeleton } from "./pose";
-import type { NormalizedLandmark } from "./pose";
+import { useEffect, useRef, useCallback } from "react";
+import { drawSkeleton, loadPose } from "./pose";
+import type { NormalizedLandmark, PoseResults } from "./pose";
+import { withPoseLock } from "./poseMutex";
+import { LandmarkSmoother } from "./landmarkSmoother";
 
 type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
-  /** Optional label shown in the top-right badge. Defaults to "LIVE". */
   badge?: string;
   /** Optional: overlay segmented video */
   segmentedVideoUrl?: string | null;
@@ -19,10 +19,15 @@ export default function CameraPanel({ onPose, badge = "LIVE", segmentedVideoUrl,
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayVideoRef = useRef<HTMLVideoElement>(null);
-
-  // Keep onPose fresh in a ref so we don't re-register when callback identity changes
+  const canvasSizeRef = useRef({ w: 0, h: 0 });
   const onPoseRef = useRef(onPose);
   onPoseRef.current = onPose;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const poseRef = useRef<any>(null);
+  const activeRef = useRef(true);
+  const animRef = useRef(0);
+  const offscreenRef = useRef<HTMLCanvasElement | null>(null);
+  const smootherRef = useRef(new LandmarkSmoother());
 
   // Sync overlay video time
   useEffect(() => {
@@ -37,10 +42,43 @@ export default function CameraPanel({ onPose, badge = "LIVE", segmentedVideoUrl,
     }
   }, [referenceVideoTime, segmentedVideoUrl]);
 
+  const processFrame = useCallback(async () => {
+    if (!activeRef.current) return;
+
+    const video = videoRef.current;
+    const pose = poseRef.current;
+
+    if (video && pose && video.readyState >= 2) {
+      let oc = offscreenRef.current;
+      if (!oc) {
+        oc = document.createElement("canvas");
+        offscreenRef.current = oc;
+      }
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+      if (oc.width !== vw || oc.height !== vh) {
+        oc.width = vw;
+        oc.height = vh;
+      }
+      const octx = oc.getContext("2d");
+      if (octx) {
+        octx.drawImage(video, 0, 0, oc.width, oc.height);
+        try {
+          await withPoseLock(() => pose.send({ image: oc }));
+        } catch {
+          // transient error
+        }
+      }
+    }
+
+    if (activeRef.current) {
+      animRef.current = requestAnimationFrame(processFrame);
+    }
+  }, []);
+
   useEffect(() => {
+    activeRef.current = true;
     let stream: MediaStream | null = null;
-    let unregister: (() => void) | null = null;
-    let cancelled = false;
 
     const init = async () => {
       try {
@@ -49,52 +87,55 @@ export default function CameraPanel({ onPose, badge = "LIVE", segmentedVideoUrl,
           audio: false,
         });
 
-        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+        if (!activeRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {}); // suppress play() interrupted
+          await videoRef.current.play().catch(() => {});
         }
 
-        if (cancelled) return;
+        const pose = await loadPose();
+        if (!activeRef.current) return;
+        poseRef.current = pose;
 
-        console.log("[CameraPanel] Registering with pose manager...");
-        // Register with the shared pose manager
-        unregister = await registerPoseSource(
-          "camera",
-          () => videoRef.current,
-          (landmarks) => {
-            onPoseRef.current(landmarks);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (pose as any).onResults((results: PoseResults) => {
+          const raw = results.poseLandmarks ?? null;
+          const landmarks = raw ? smootherRef.current.smooth(raw) : null;
+          onPoseRef.current(landmarks);
 
-            const canvas = canvasRef.current;
-            if (canvas && landmarks) {
-              const ctx = canvas.getContext("2d");
-              if (ctx) {
-                canvas.width = canvas.offsetWidth;
-                canvas.height = canvas.offsetHeight;
-                drawSkeleton(ctx, landmarks, canvas.width, canvas.height);
+          const canvas = canvasRef.current;
+          if (canvas && landmarks) {
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              const w = canvas.offsetWidth;
+              const h = canvas.offsetHeight;
+              if (canvasSizeRef.current.w !== w || canvasSizeRef.current.h !== h) {
+                canvas.width = w;
+                canvas.height = h;
+                canvasSizeRef.current = { w, h };
               }
-            } else if (canvas) {
-              const ctx = canvas.getContext("2d");
-              ctx?.clearRect(0, 0, canvas.width, canvas.height);
+              drawSkeleton(ctx, landmarks, canvas.width, canvas.height);
             }
           }
-        );
+        });
+
+        console.log("[Camera] Pose instance loaded, starting frame loop");
+        animRef.current = requestAnimationFrame(processFrame);
       } catch (err) {
-        console.error("Camera/Pose init error:", err);
+        console.error("Camera init error:", err);
       }
     };
 
     init();
 
     return () => {
-      cancelled = true;
-      unregister?.();
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-      }
+      activeRef.current = false;
+      cancelAnimationFrame(animRef.current);
+      smootherRef.current.reset();
+      if (stream) stream.getTracks().forEach((t) => t.stop());
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [processFrame]);
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black">
@@ -102,7 +143,7 @@ export default function CameraPanel({ onPose, badge = "LIVE", segmentedVideoUrl,
         ref={videoRef}
         playsInline
         muted
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain bg-black"
         style={{ transform: "scaleX(-1)" }}
       />
       {/* Overlay segmented video */}
