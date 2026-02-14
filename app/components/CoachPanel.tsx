@@ -77,7 +77,7 @@ export default function CoachPanel({ score, message, showScore }: Props) {
         <>
           <div className="flex-shrink-0 flex flex-col items-center gap-1">
             <span
-              className="text-[8px] tracking-[0.3em] uppercase text-neon-cyan/30"
+              className="text-[11px] tracking-[0.3em] uppercase text-neon-cyan/60"
               style={{ fontFamily: "var(--font-audiowide)" }}
             >
               Score
@@ -105,13 +105,13 @@ export default function CoachPanel({ score, message, showScore }: Props) {
               </span>
             </div>
             {/* Label — fixed height so it doesn't shift layout */}
-            <div className="h-4 flex items-center">
+            <div className="h-5 flex items-center">
               {label && (
                 <span
                   className={labelBounce ? "score-label" : ""}
                   style={{
                     fontFamily: "var(--font-audiowide)",
-                    fontSize: 10,
+                    fontSize: 13,
                     letterSpacing: "0.2em",
                     textTransform: "uppercase" as const,
                     fontWeight: 700,
@@ -145,13 +145,13 @@ export default function CoachPanel({ score, message, showScore }: Props) {
       {/* Coach message */}
       <div className="flex-1 min-w-0 pl-2">
         <p
-          className="text-[8px] tracking-[0.25em] uppercase text-neon-violet/40 mb-1"
+          className="text-[11px] tracking-[0.25em] uppercase text-neon-violet/70 mb-1"
           style={{ fontFamily: "var(--font-audiowide)" }}
         >
           AI Coach
         </p>
         <p
-          className="text-white/85 text-sm font-medium truncate"
+          className="text-white/90 text-base font-medium truncate"
           style={{ fontFamily: "var(--font-chakra-petch)" }}
         >
           {message || "Step into the arena. Show me what you\u2019ve got."}
