@@ -50,7 +50,7 @@ export async function GET(
     let cancelled = false;
     const webStream = new ReadableStream({
       start(controller) {
-        stream.on("data", (chunk: Buffer) => {
+        stream.on("data", (chunk: string | Buffer) => {
           if (!cancelled) controller.enqueue(chunk);
         });
         stream.on("end", () => {
@@ -87,7 +87,7 @@ export async function GET(
   let cancelled = false;
   const webStream = new ReadableStream({
     start(controller) {
-      stream.on("data", (chunk: Buffer) => {
+      stream.on("data", (chunk: string | Buffer) => {
         if (!cancelled) controller.enqueue(chunk);
       });
       stream.on("end", () => {
