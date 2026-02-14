@@ -26,6 +26,7 @@ type Props = {
   extractionProgress: number;
   segmentationStatus?: SegmentationStatus;
   segmentationProgress?: number;
+  generatePhase?: string;
 };
 
 function HudCorners({ color = "neon-cyan" }: { color?: string }) {
@@ -61,6 +62,7 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
     extractionProgress,
     segmentationStatus,
     segmentationProgress,
+    generatePhase,
   },
   ref
 ) {
@@ -102,7 +104,7 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
             &#9654;
           </div>
           <p className="text-neon-cyan/25 text-xs tracking-wider uppercase">
-            Paste a YouTube URL to begin
+            Paste a YouTube URL or generate with AI
           </p>
         </div>
       </div>
@@ -110,15 +112,19 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
   }
 
   if (downloadStatus === "downloading") {
+    const phaseLabel = generatePhase
+      ? { researching: "Researching the Web", synthesizing: "Synthesizing Routine", generating: "Generating Video", downloading: "Downloading Video" }[generatePhase] || "Processing"
+      : "Downloading";
+
     return (
       <div className="relative w-full h-full flex flex-col items-center justify-center gap-5 bg-black/50 border border-neon-cyan/10 rounded">
         <HudCorners />
-        <PanelLabel>Downloading</PanelLabel>
+        <PanelLabel>{generatePhase ? "AI Generating" : "Downloading"}</PanelLabel>
         <div
           className="text-neon-cyan/50 text-xs tracking-[0.2em] uppercase"
           style={{ fontFamily: "var(--font-audiowide)" }}
         >
-          Downloading
+          {phaseLabel}
         </div>
         <div className="w-56 h-1.5 bg-white/5 rounded-full overflow-hidden">
           <div
