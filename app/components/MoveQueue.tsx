@@ -13,8 +13,8 @@ type Props = {
   onSeek: (time: number) => void;
 };
 
-const CARD_W = 80;
-const CARD_H = 120;
+const CARD_W = 96;
+const CARD_H = 128;
 const VISIBLE_CARDS = 7;
 
 const REF_STYLE = {
@@ -221,6 +221,8 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
             }
           }
 
+          const thumbnail = timeline[sample.idx]?.thumbnail;
+
           return (
             <div
               key={sample.idx}
@@ -229,40 +231,57 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
               onClick={() => handleCardClick(sample.time)}
             >
               <div
-                className={`rounded border-2 transition-all duration-300 ${borderClass} ${glowClass} ${
+                className={`holo-card rounded border-2 overflow-hidden transition-all duration-300 ${borderClass} ${glowClass} ${
                   isCurrent ? "scale-110" : "hover:scale-105 hover:border-neon-cyan/20"
                 }`}
                 style={{
                   width: CARD_W,
                   height: CARD_H,
-                  background: "rgba(5, 5, 15, 0.7)",
                   position: "relative",
+                  backgroundImage: thumbnail ? `url(${thumbnail})` : undefined,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  backgroundColor: thumbnail ? undefined : "rgba(5, 5, 15, 0.7)",
                 }}
               >
+                {/* Dark hologram tint */}
+                <div
+                  className={`holo-tint ${isCurrent ? "holo-tint-active" : ""}`}
+                />
+
+                {/* Scanline overlay */}
+                <div
+                  className={`holo-scanlines ${isCurrent ? "holo-scanlines-active" : ""}`}
+                />
+
+                {/* Reference skeleton canvas */}
                 <canvas
                   ref={(el) => {
                     if (el) canvasRefs.current.set(sample.idx, el);
                   }}
                   width={CARD_W}
                   height={CARD_H}
-                  style={{ position: "absolute", top: 0, left: 0 }}
+                  style={{ position: "absolute", top: 0, left: 0, zIndex: 3 }}
                 />
 
+                {/* Live overlay canvas (active card only) */}
                 {isCurrent && (
                   <canvas
                     ref={overlayCanvasRef}
                     width={CARD_W}
                     height={CARD_H}
-                    style={{ position: "absolute", top: 0, left: 0 }}
+                    style={{ position: "absolute", top: 0, left: 0, zIndex: 4 }}
                   />
                 )}
 
+                {/* Match score badge */}
                 {isCurrent && matchScore !== null && (
                   <div
                     style={{
                       position: "absolute",
                       top: 3,
                       right: 3,
+                      zIndex: 5,
                       fontSize: 9,
                       fontWeight: 700,
                       fontFamily: "var(--font-audiowide)",

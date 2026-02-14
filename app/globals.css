@@ -525,6 +525,73 @@ html, body {
   animation: score-label-bounce 0.4s ease-out;
 }
 
+/* ═══ HOLOGRAM MOVE CARDS ═══ */
+
+.holo-card {
+  backdrop-filter: blur(4px);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.holo-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 255, 255, 0.08) 0%,
+    transparent 40%,
+    transparent 60%,
+    rgba(255, 0, 170, 0.06) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 6;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.holo-card:hover::before,
+.holo-card.scale-110::before {
+  opacity: 1;
+}
+
+.holo-tint {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 15, 0.55);
+  z-index: 1;
+  pointer-events: none;
+  transition: background 0.3s ease;
+}
+
+.holo-tint-active {
+  background: rgba(5, 5, 15, 0.35);
+}
+
+.holo-scanlines {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 255, 255, 0.03) 2px,
+    rgba(0, 255, 255, 0.03) 4px
+  );
+  background-size: 100% 4px;
+}
+
+.holo-scanlines-active {
+  animation: holo-scan-drift 4s linear infinite;
+}
+
+@keyframes holo-scan-drift {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 40px; }
+}
+
 /* ═══ SCROLLBAR ═══ */
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }

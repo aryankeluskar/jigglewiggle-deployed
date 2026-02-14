@@ -20,7 +20,7 @@ type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
 type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailable";
 
-const STRIP_POSE_CACHE_VERSION = 3;
+const STRIP_POSE_CACHE_VERSION = 4;
 const STRIP_POSE_INTERVAL_SECONDS = 2;
 
 function stripPoseCacheKey(videoId: string) {

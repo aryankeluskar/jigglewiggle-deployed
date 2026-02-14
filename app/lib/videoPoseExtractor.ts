@@ -11,6 +11,7 @@ export type PoseTimeline = PoseFrame[];
 export type StripPoseFrame = {
   time: number;
   landmarks: NormalizedLandmark[];
+  thumbnail?: string;
 };
 
 export type StripPoseTimeline = StripPoseFrame[];
@@ -142,13 +143,14 @@ export async function extractStripPoses(
     });
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const thumbnail = canvas.toDataURL("image/jpeg", 0.6);
 
     const landmarks = await new Promise<NormalizedLandmark[]>((resolve) => {
       resolveFrame = resolve;
       pose.send({ image: canvas });
     });
 
-    timeline.push({ time: t, landmarks });
+    timeline.push({ time: t, landmarks, thumbnail });
     onProgress((t / duration) * 100);
   }
 
@@ -180,15 +182,15 @@ function fillMissingStripLandmarks(timeline: StripPoseTimeline): StripPoseTimeli
     if (prev === -1 && nextIdx === -1) return frame;
 
     if (prev === -1) {
-      return { ...frame, landmarks: [...timeline[nextIdx].landmarks] };
+      return { ...frame, landmarks: [...timeline[nextIdx].landmarks], thumbnail: frame.thumbnail ?? timeline[nextIdx].thumbnail };
     }
     if (nextIdx === -1) {
-      return { ...frame, landmarks: [...timeline[prev].landmarks] };
+      return { ...frame, landmarks: [...timeline[prev].landmarks], thumbnail: frame.thumbnail ?? timeline[prev].thumbnail };
     }
 
     const prevDelta = Math.abs(frame.time - timeline[prev].time);
     const nextDelta = Math.abs(timeline[nextIdx].time - frame.time);
     const source = prevDelta <= nextDelta ? timeline[prev] : timeline[nextIdx];
-    return { ...frame, landmarks: [...source.landmarks] };
+    return { ...frame, landmarks: [...source.landmarks], thumbnail: frame.thumbnail ?? source.thumbnail };
   });
 }
