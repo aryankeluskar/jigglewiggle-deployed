@@ -1,5 +1,6 @@
 /**
  * Lightweight scoring module for dance pose evaluation.
+ * Also produces a compact PoseSummary JSON for the LLM coach.
  */
 
 import type { NormalizedLandmark } from "./pose";
@@ -10,13 +11,54 @@ export type ScoreFrame = {
   issues: string[];
 };
 
-// Ring buffer of recent keypoint positions for motion energy
+/**
+ * Compact JSON payload sent to the LLM coach.
+ * Designed to be small (fits in ~200 tokens) while giving the model
+ * everything it needs to produce useful dance coaching feedback.
+ */
+export type PoseSummary = {
+  /** Overall score 0-100 */
+  score: number;
+  /** Pose detection confidence 0-1 */
+  confidence: number;
+  /** Body metrics — all normalised 0-1 values */
+  body: {
+    /** Average wrist height relative to shoulders. Negative = hands above shoulders */
+    armHeight: number;
+    /** Absolute difference between left and right wrist heights */
+    armSymmetry: number;
+    /** Average keypoint displacement per frame (motion energy) */
+    motionEnergy: number;
+    /** Torso lean — hip centre x vs shoulder centre x */
+    torsoLean: number;
+    /** Knee bend — average knee-to-hip vertical distance */
+    kneeBend: number;
+  };
+  /** Active issues detected by heuristics */
+  issues: string[];
+  /** Trend: "improving" | "declining" | "steady" based on recent score history */
+  trend: "improving" | "declining" | "steady";
+  /** Seconds since the session started */
+  sessionSeconds: number;
+};
+
+// --- Internal state ---
 const HISTORY_SIZE = 15;
 let history: NormalizedLandmark[][] = [];
+let scoreHistory: number[] = [];
+let sessionStart = 0;
+
+/**
+ * Reset internal state (call when session restarts).
+ */
+export function resetScoring(): void {
+  history = [];
+  scoreHistory = [];
+  sessionStart = 0;
+}
 
 /**
  * Compute a score frame from the current pose landmarks.
- * landmarks: array of 33 MediaPipe Pose landmarks (normalised 0-1).
  */
 export function computeScore(
   landmarks: NormalizedLandmark[] | null
@@ -40,7 +82,6 @@ export function computeScore(
   }
 
   // --- Arm height ---
-  // Wrists: 15 (left), 16 (right); Shoulders: 11 (left), 12 (right)
   const leftWrist = landmarks[15];
   const rightWrist = landmarks[16];
   const leftShoulder = landmarks[11];
@@ -50,13 +91,11 @@ export function computeScore(
     const avgWristY = (leftWrist.y + rightWrist.y) / 2;
     const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
 
-    // In normalised coords, lower y = higher on screen
     if (avgWristY > avgShoulderY + 0.15) {
       score -= 10;
       issues.push("Arms too low");
     }
 
-    // --- Symmetry ---
     const armDiff = Math.abs(leftWrist.y - rightWrist.y);
     if (armDiff > 0.18) {
       score -= 8;
@@ -87,13 +126,121 @@ export function computeScore(
       score -= 8;
       issues.push("Moving too chaotically");
     } else {
-      // Good movement range — bonus
       score += 10;
     }
   }
 
-  // Clamp
   score = Math.max(0, Math.min(100, score));
+  const rounded = Math.round(score);
 
-  return { ts: now, score: Math.round(score), issues };
+  // Track score trend
+  scoreHistory.push(rounded);
+  if (scoreHistory.length > 30) scoreHistory.shift();
+
+  return { ts: now, score: rounded, issues };
+}
+
+/**
+ * Build a compact PoseSummary JSON from the current landmarks + latest score frame.
+ * This is the payload the LLM coach receives.
+ */
+export function buildPoseSummary(
+  landmarks: NormalizedLandmark[] | null,
+  frame: ScoreFrame
+): PoseSummary {
+  if (!sessionStart) sessionStart = Date.now();
+
+  const fallback: PoseSummary = {
+    score: frame.score,
+    confidence: 0,
+    body: {
+      armHeight: 0,
+      armSymmetry: 0,
+      motionEnergy: 0,
+      torsoLean: 0,
+      kneeBend: 0,
+    },
+    issues: frame.issues,
+    trend: computeTrend(),
+    sessionSeconds: Math.round((Date.now() - sessionStart) / 1000),
+  };
+
+  if (!landmarks || landmarks.length < 33) return fallback;
+
+  // Key landmarks
+  const lShoulder = landmarks[11];
+  const rShoulder = landmarks[12];
+  const lWrist = landmarks[15];
+  const rWrist = landmarks[16];
+  const lHip = landmarks[23];
+  const rHip = landmarks[24];
+  const lKnee = landmarks[25];
+  const rKnee = landmarks[26];
+
+  const avgVisibility =
+    landmarks.reduce((s, l) => s + (l.visibility ?? 0), 0) / landmarks.length;
+
+  // Arm height: wrist Y relative to shoulder Y (negative = above shoulders)
+  const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
+  const avgWristY = (lWrist.y + rWrist.y) / 2;
+  const armHeight = round(avgWristY - avgShoulderY);
+
+  // Arm symmetry: absolute left-right wrist Y difference
+  const armSymmetry = round(Math.abs(lWrist.y - rWrist.y));
+
+  // Motion energy from history
+  let motionEnergy = 0;
+  if (history.length >= 3) {
+    const prev = history[history.length - 3];
+    const curr = history[history.length - 1];
+    let totalDisp = 0;
+    const count = Math.min(prev.length, curr.length);
+    for (let i = 0; i < count; i++) {
+      const dx = curr[i].x - prev[i].x;
+      const dy = curr[i].y - prev[i].y;
+      totalDisp += Math.sqrt(dx * dx + dy * dy);
+    }
+    motionEnergy = round(totalDisp / count);
+  }
+
+  // Torso lean: hip centre X vs shoulder centre X
+  const shoulderCX = (lShoulder.x + rShoulder.x) / 2;
+  const hipCX = (lHip.x + rHip.x) / 2;
+  const torsoLean = round(hipCX - shoulderCX);
+
+  // Knee bend: average (hip Y - knee Y), bigger = more bent
+  const kneeBend = round(
+    ((lKnee.y - lHip.y) + (rKnee.y - rHip.y)) / 2
+  );
+
+  return {
+    score: frame.score,
+    confidence: round(avgVisibility),
+    body: {
+      armHeight,
+      armSymmetry,
+      motionEnergy,
+      torsoLean,
+      kneeBend,
+    },
+    issues: frame.issues,
+    trend: computeTrend(),
+    sessionSeconds: Math.round((Date.now() - sessionStart) / 1000),
+  };
+}
+
+function computeTrend(): "improving" | "declining" | "steady" {
+  if (scoreHistory.length < 10) return "steady";
+  const recent = scoreHistory.slice(-5);
+  const older = scoreHistory.slice(-10, -5);
+  const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+  const diff = recentAvg - olderAvg;
+  if (diff > 5) return "improving";
+  if (diff < -5) return "declining";
+  return "steady";
+}
+
+function round(n: number): number {
+  return Math.round(n * 1000) / 1000;
 }

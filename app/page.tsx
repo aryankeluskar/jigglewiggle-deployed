@@ -6,7 +6,7 @@ import YoutubePanel from "./components/YoutubePanel";
 import CameraPanel from "./components/CameraPanel";
 import CoachPanel from "./components/CoachPanel";
 import { extractVideoId } from "./lib/youtube";
-import { computeScore } from "./lib/scoring";
+import { computeScore, buildPoseSummary } from "./lib/scoring";
 import { getCoachMessage } from "./lib/coach";
 import { speak } from "./lib/speech";
 import type { NormalizedLandmark } from "./lib/pose";
@@ -41,11 +41,14 @@ export default function Home() {
     const frame = computeScore(landmarks);
     setScore(frame.score);
 
-    const msg = getCoachMessage(frame);
-    if (msg) {
-      setCoachMsg(msg);
-      speak(msg);
-    }
+    // Build the rich summary and send it to the LLM coach (async, fire-and-forget)
+    const summary = buildPoseSummary(landmarks, frame);
+    getCoachMessage(summary).then((msg) => {
+      if (msg) {
+        setCoachMsg(msg);
+        speak(msg);
+      }
+    });
   };
 
   const handlePose = useCallback(
