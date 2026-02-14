@@ -118,6 +118,8 @@ export default function Home() {
   const [mode, setMode] = useState<AppMode>("dance");
   const [classificationStatus, setClassificationStatus] = useState<ClassificationStatus>("idle");
   const [modeOverlaySeq, setModeOverlaySeq] = useState(0);
+  const [videoTitle, setVideoTitle] = useState("");
+  const [lastSubmittedUrl, setLastSubmittedUrl] = useState("");
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -179,6 +181,8 @@ export default function Home() {
     setVideoId(id);
     setDownloadStatus("downloading");
     setClassificationStatus("pending");
+    setVideoTitle("");
+    setLastSubmittedUrl(url);
     setDownloadProgress(0);
     setDownloadError(null);
 
@@ -221,6 +225,7 @@ export default function Home() {
               setMode(event.mode === "gym" ? "gym" : "dance");
               setClassificationStatus("done");
               setModeOverlaySeq(s => s + 1);
+              if (event.title) setVideoTitle(event.title);
             } else if (event.type === "error") {
               setDownloadStatus("error");
               setDownloadError(event.message);
@@ -597,7 +602,11 @@ export default function Home() {
         </div>
 
         <div className="flex-1 max-w-xl mx-8">
-          <UrlInput onSubmit={handleUrl} />
+          <UrlInput
+            onSubmit={handleUrl}
+            lastSubmittedTitle={videoTitle}
+            lastSubmittedUrl={lastSubmittedUrl}
+          />
         </div>
 
         <div
