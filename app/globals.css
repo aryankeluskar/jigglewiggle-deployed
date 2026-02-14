@@ -18,10 +18,9 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Ensure full-height layout */
+/* Full-height layout; allow scroll when content overflows */
 html,
 body {
-  height: 100%;
+  min-height: 100%;
   margin: 0;
-  overflow: hidden;
 }
