@@ -162,6 +162,7 @@ export default function ZoomApp() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white flex flex-col">
         <header className="flex-shrink-0 px-6 py-4 flex items-center border-b border-white/5">
+          <span className="text-yellow-400 text-xs mr-2">[v2 - offscreen canvas]</span>
           <button onClick={() => setMode("choose")} className="text-white/40 hover:text-white text-sm cursor-pointer mr-3">← Back</button>
           <h1 className="text-xl font-bold">
             <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Jiggle Wiggle</span>
