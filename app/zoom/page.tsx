@@ -2,22 +2,37 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import CameraPanel from "../shared/CameraPanel";
-import CoachPanel from "../shared/CoachPanel";
+import ComparisonPanel from "../shared/ComparisonPanel";
 import ScreenCapturePanel from "../shared/ScreenCapturePanel";
+import { comparePosesDetailed } from "../lib/poseComparison";
 import { computeScore, buildPoseSummary } from "../shared/scoring";
 import { getCoachMessage } from "../shared/coach";
 import { speak } from "../shared/speech";
 import type { NormalizedLandmark } from "../shared/pose";
+import type { ComparisonResult } from "../shared/compare";
 
 type Mode = "choose" | "zoom-sdk" | "screen-capture";
 type ZoomState = "idle" | "ready" | "joining" | "joined" | "error";
+
+// Scoring constants (same as YouTube page)
+const SCORE_EMA_ALPHA = 0.15;
+const SCORE_DEAD_ZONE = 2;
+
+const LIMB_LABELS: Record<string, string> = {
+  rightArm: "Right arm",
+  leftArm: "Left arm",
+  rightLeg: "Right leg",
+  leftLeg: "Left leg",
+  torso: "Torso",
+};
 
 export default function ZoomApp() {
   const [mode, setMode] = useState<Mode>("choose");
   const [score, setScore] = useState(0);
   const [coachMsg, setCoachMsg] = useState("");
+  const [comparison, setComparison] = useState<ComparisonResult | null>(null);
 
-  // Zoom state
+  // Zoom SDK state
   const [meetingNumber, setMeetingNumber] = useState("");
   const [passcode, setPasscode] = useState("");
   const [userName, setUserName] = useState("JiggleWiggle");
@@ -25,34 +40,134 @@ export default function ZoomApp() {
   const [zoomError, setZoomError] = useState("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // --- Scoring from captured/remote pose ---
-  const onRemotePoseRef = useRef<(landmarks: NormalizedLandmark[] | null) => void>(null);
-  onRemotePoseRef.current = (landmarks: NormalizedLandmark[] | null) => {
-    const frame = computeScore(landmarks);
-    setScore(frame.score);
+  // Track both poses
+  const remotePoseRef = useRef<NormalizedLandmark[] | null>(null);
+  const selfPoseRef = useRef<NormalizedLandmark[] | null>(null);
+  const smoothedScoreRef = useRef(0);
 
-    const summary = buildPoseSummary(landmarks, frame);
+  // Core comparison logic — runs on every frame from either source
+  const runComparison = useCallback(() => {
+    const remoteLm = remotePoseRef.current;
+    const selfLm = selfPoseRef.current;
+
+    // Need both poses with enough landmarks
+    if (!remoteLm || !selfLm || remoteLm.length < 33 || selfLm.length < 33) {
+      // If we have self pose only, show basic heuristic score
+      if (selfLm && selfLm.length >= 33) {
+        const frame = computeScore(selfLm);
+        setScore(frame.score);
+      }
+      setComparison({
+        similarity: 0,
+        parts: { arms: 0, legs: 0, torso: 0 },
+        feedback: remoteLm ? ["Step into frame!"] : ["Waiting for Zoom feed…"],
+      });
+      return;
+    }
+
+    // 1. Detailed geometric comparison (per-limb, normalized)
+    const detailed = comparePosesDetailed(remoteLm, selfLm);
+    if (!detailed) {
+      setComparison({
+        similarity: 0,
+        parts: { arms: 0, legs: 0, torso: 0 },
+        feedback: ["Can't compare poses clearly"],
+      });
+      return;
+    }
+
+    // 2. Heuristic score from self pose (for body metrics)
+    const frame = computeScore(selfLm);
+
+    // 3. Blend: mostly geometric match, with some heuristic
+    const geoScore = detailed.matchScore;
+    const blended = Math.round(0.8 * geoScore + 0.2 * frame.score);
+    const finalScore = Math.max(0, Math.min(100, blended));
+
+    // 4. EMA smoothing
+    const smoothed =
+      smoothedScoreRef.current * (1 - SCORE_EMA_ALPHA) +
+      finalScore * SCORE_EMA_ALPHA;
+    smoothedScoreRef.current = smoothed;
+    const rounded = Math.round(smoothed);
+    if (Math.abs(rounded - score) >= SCORE_DEAD_ZONE) {
+      setScore(rounded);
+    }
+
+    // 5. Build per-part breakdown for ComparisonPanel
+    const arms = Math.round(
+      ((detailed.limbScores.leftArm ?? 50) + (detailed.limbScores.rightArm ?? 50)) / 2
+    );
+    const legs = Math.round(
+      ((detailed.limbScores.leftLeg ?? 50) + (detailed.limbScores.rightLeg ?? 50)) / 2
+    );
+    const torso = detailed.limbScores.torso ?? 50;
+
+    // 6. Generate feedback
+    const feedback: string[] = [];
+    const worstLabel = LIMB_LABELS[detailed.worstLimb] ?? detailed.worstLimb;
+    if (detailed.limbScores[detailed.worstLimb] < 60) {
+      feedback.push(`Fix your ${worstLabel.toLowerCase()}!`);
+    }
+    if (rounded >= 80) {
+      feedback.push("Great match — keep it locked in!");
+    } else if (rounded >= 60) {
+      feedback.push("Getting close — tighten it up!");
+    } else if (rounded >= 40) {
+      feedback.push("Mirror their moves!");
+    }
+    if (detailed.refPoseLabel && detailed.refPoseLabel !== "Neutral") {
+      feedback.push(`They're doing: ${detailed.refPoseLabel}`);
+    }
+    if (feedback.length === 0) feedback.push("Try to match the dancer!");
+
+    setComparison({
+      similarity: rounded,
+      parts: { arms, legs, torso },
+      feedback,
+    });
+
+    // 7. Feed into LLM coach with full context
+    const issues = [...frame.issues];
+    if (detailed.limbScores[detailed.worstLimb] < 60) {
+      issues.unshift(`${worstLabel} off from reference`);
+    }
+
+    const summary = buildPoseSummary(selfLm, {
+      ...frame,
+      score: rounded,
+      issues,
+    });
+    // Attach reference comparison data for richer LLM coaching
+    (summary as Record<string, unknown>).reference = detailed;
+
     getCoachMessage(summary).then((result) => {
       if (result) {
         setCoachMsg(result.message);
         if (result.audio) speak(result.audio);
       }
     });
-  };
+  }, [score]);
 
+  // Remote pose handler (dancer in Zoom)
   const handleRemotePose = useCallback(
     (landmarks: NormalizedLandmark[] | null) => {
-      onRemotePoseRef.current?.(landmarks);
+      remotePoseRef.current = landmarks;
+      runComparison();
     },
-    []
+    [runComparison]
   );
 
+  // Self pose handler (your webcam)
   const handleSelfPose = useCallback(
-    (_landmarks: NormalizedLandmark[] | null) => {},
-    []
+    (landmarks: NormalizedLandmark[] | null) => {
+      selfPoseRef.current = landmarks;
+      runComparison();
+    },
+    [runComparison]
   );
 
-  // Listen for messages from the Zoom iframe
+  // Listen for Zoom iframe messages
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type !== "zoom-status") return;
@@ -69,18 +184,15 @@ export default function ZoomApp() {
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  // Join via iframe postMessage
   const joinZoomMeeting = async () => {
     if (!meetingNumber.trim()) {
       setZoomError("Enter a meeting number.");
       return;
     }
-
     setZoomState("joining");
     setZoomError("");
 
     try {
-      // Get JWT signature
       const sigRes = await fetch("/api/zoom-signature", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -89,24 +201,25 @@ export default function ZoomApp() {
           role: 0,
         }),
       });
-
       const sigData = await sigRes.json();
 
       if (!sigRes.ok || !sigData.signature) {
         setZoomState("error");
-        setZoomError(sigData.error || "Failed to get signature. Check ZOOM_SDK_KEY/SECRET in .env.local");
+        setZoomError(sigData.error || "Failed to get signature.");
         return;
       }
 
-      // Send join command to the iframe
-      iframeRef.current?.contentWindow?.postMessage({
-        type: "join",
-        sdkKey: process.env.NEXT_PUBLIC_ZOOM_SDK_KEY || "",
-        signature: sigData.signature,
-        meetingNumber: meetingNumber.replace(/\s/g, ""),
-        password: passcode,
-        userName: userName || "JiggleWiggle",
-      }, "*");
+      iframeRef.current?.contentWindow?.postMessage(
+        {
+          type: "join",
+          sdkKey: process.env.NEXT_PUBLIC_ZOOM_SDK_KEY || "",
+          signature: sigData.signature,
+          meetingNumber: meetingNumber.replace(/\s/g, ""),
+          password: passcode,
+          userName: userName || "JiggleWiggle",
+        },
+        "*"
+      );
     } catch (err) {
       setZoomState("error");
       setZoomError(err instanceof Error ? err.message : "Failed to join");
@@ -124,7 +237,9 @@ export default function ZoomApp() {
               Jiggle Wiggle
             </span>
           </h1>
-          <p className="text-white/40 text-sm">Zoom Mode — choose how to connect</p>
+          <p className="text-white/40 text-sm">
+            Zoom Mode — choose how to connect
+          </p>
         </div>
 
         <div className="flex gap-6 max-w-2xl w-full">
@@ -137,7 +252,8 @@ export default function ZoomApp() {
               Join Zoom Meeting
             </h3>
             <p className="text-white/40 text-xs leading-relaxed">
-              Enter a meeting ID to embed a live Zoom call. Requires ZOOM_SDK_KEY in .env.local
+              Enter a meeting ID to embed a live Zoom call. Requires
+              ZOOM_SDK_KEY in .env.local
             </p>
           </button>
 
@@ -150,7 +266,8 @@ export default function ZoomApp() {
               Capture Zoom Window
             </h3>
             <p className="text-white/40 text-xs leading-relaxed">
-              Share your Zoom window directly. No credentials needed — just pick the window.
+              Share your Zoom window directly. No credentials needed — just pick
+              the window.
             </p>
           </button>
         </div>
@@ -162,40 +279,68 @@ export default function ZoomApp() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white flex flex-col">
         <header className="flex-shrink-0 px-6 py-4 flex items-center border-b border-white/5">
-          <span className="text-yellow-400 text-xs mr-2">[v2 - offscreen canvas]</span>
-          <button onClick={() => setMode("choose")} className="text-white/40 hover:text-white text-sm cursor-pointer mr-3">← Back</button>
+          <button
+            onClick={() => setMode("choose")}
+            className="text-white/40 hover:text-white text-sm cursor-pointer mr-3"
+          >
+            ← Back
+          </button>
           <h1 className="text-xl font-bold">
-            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Jiggle Wiggle</span>
-            <span className="text-white/30 text-sm ml-3 font-normal">Screen Capture</span>
+            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
+              Jiggle Wiggle
+            </span>
+            <span className="text-white/30 text-sm ml-3 font-normal">
+              Screen Capture
+            </span>
           </h1>
         </header>
         <main className="flex-1 flex gap-4 p-4 min-h-0">
-          <div className="flex-1 min-w-0"><ScreenCapturePanel onPose={handleRemotePose} /></div>
-          <div className="flex-1 min-w-0"><CameraPanel onPose={handleSelfPose} badge="YOU" /></div>
+          <div className="flex-1 min-w-0">
+            <ScreenCapturePanel onPose={handleRemotePose} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <CameraPanel onPose={handleSelfPose} badge="YOU" />
+          </div>
         </main>
-        <footer className="flex-shrink-0 px-4 pb-4"><CoachPanel score={score} message={coachMsg} /></footer>
+        <footer className="flex-shrink-0 px-4 pb-4">
+          <ComparisonPanel comparison={comparison} coachMessage={coachMsg} />
+        </footer>
       </div>
     );
   }
 
-  // --- Zoom SDK mode (via iframe) ---
+  // --- Zoom SDK mode ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white flex flex-col">
       <header className="flex-shrink-0 px-6 py-4 flex items-center justify-between border-b border-white/5">
         <div className="flex items-center gap-3">
-          <button onClick={() => setMode("choose")} className="text-white/40 hover:text-white text-sm cursor-pointer">← Back</button>
+          <button
+            onClick={() => setMode("choose")}
+            className="text-white/40 hover:text-white text-sm cursor-pointer"
+          >
+            ← Back
+          </button>
           <h1 className="text-xl font-bold">
-            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Jiggle Wiggle</span>
-            <span className="text-white/30 text-sm ml-3 font-normal">Zoom Meeting</span>
+            <span className="bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
+              Jiggle Wiggle
+            </span>
+            <span className="text-white/30 text-sm ml-3 font-normal">
+              Zoom Meeting
+            </span>
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${
-            zoomState === "joined" ? "bg-green-400 animate-pulse"
-            : zoomState === "joining" ? "bg-yellow-400 animate-pulse"
-            : zoomState === "error" ? "bg-red-400"
-            : "bg-white/30"
-          }`} />
+          <span
+            className={`w-2 h-2 rounded-full ${
+              zoomState === "joined"
+                ? "bg-green-400 animate-pulse"
+                : zoomState === "joining"
+                ? "bg-yellow-400 animate-pulse"
+                : zoomState === "error"
+                ? "bg-red-400"
+                : "bg-white/30"
+            }`}
+          />
           <span className="text-xs text-white/40">
             {zoomState === "idle" && "Loading SDK…"}
             {zoomState === "ready" && "Ready to join"}
@@ -210,34 +355,58 @@ export default function ZoomApp() {
         <div className="flex-shrink-0 px-6 py-4 border-b border-white/5">
           <div className="flex gap-3 items-end max-w-3xl mx-auto">
             <div className="flex-1">
-              <label className="text-xs text-white/40 mb-1 block">Meeting Number</label>
-              <input type="text" value={meetingNumber} onChange={(e) => setMeetingNumber(e.target.value)}
+              <label className="text-xs text-white/40 mb-1 block">
+                Meeting Number
+              </label>
+              <input
+                type="text"
+                value={meetingNumber}
+                onChange={(e) => setMeetingNumber(e.target.value)}
                 placeholder="123 456 7890"
-                className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/30 outline-none focus:border-blue-500 text-sm" />
+                className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/30 outline-none focus:border-blue-500 text-sm"
+              />
             </div>
             <div className="w-40">
-              <label className="text-xs text-white/40 mb-1 block">Passcode</label>
-              <input type="text" value={passcode} onChange={(e) => setPasscode(e.target.value)}
+              <label className="text-xs text-white/40 mb-1 block">
+                Passcode
+              </label>
+              <input
+                type="text"
+                value={passcode}
+                onChange={(e) => setPasscode(e.target.value)}
                 placeholder="optional"
-                className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/30 outline-none focus:border-blue-500 text-sm" />
+                className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/30 outline-none focus:border-blue-500 text-sm"
+              />
             </div>
             <div className="w-40">
-              <label className="text-xs text-white/40 mb-1 block">Your Name</label>
-              <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)}
+              <label className="text-xs text-white/40 mb-1 block">
+                Your Name
+              </label>
+              <input
+                type="text"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
                 placeholder="Your name"
-                className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/30 outline-none focus:border-blue-500 text-sm" />
+                className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/30 outline-none focus:border-blue-500 text-sm"
+              />
             </div>
-            <button onClick={joinZoomMeeting} disabled={zoomState === "joining" || zoomState === "idle"}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold text-sm hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">
+            <button
+              onClick={joinZoomMeeting}
+              disabled={zoomState === "joining" || zoomState === "idle"}
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold text-sm hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
+            >
               {zoomState === "joining" ? "Joining…" : "Join"}
             </button>
           </div>
-          {zoomError && <p className="text-red-400 text-xs mt-2 text-center">{zoomError}</p>}
+          {zoomError && (
+            <p className="text-red-400 text-xs mt-2 text-center">
+              {zoomError}
+            </p>
+          )}
         </div>
       )}
 
       <main className="flex-1 flex gap-4 p-4 min-h-0">
-        {/* Left — Zoom meeting in iframe (isolated React 18) */}
         <div className="flex-1 min-w-0 rounded-2xl overflow-hidden border border-white/10 bg-black">
           <iframe
             ref={iframeRef}
@@ -247,15 +416,13 @@ export default function ZoomApp() {
             style={{ minHeight: 400 }}
           />
         </div>
-
-        {/* Right — Your webcam */}
         <div className="flex-1 min-w-0">
           <CameraPanel onPose={handleSelfPose} badge="YOU" />
         </div>
       </main>
 
       <footer className="flex-shrink-0 px-4 pb-4">
-        <CoachPanel score={score} message={coachMsg} />
+        <ComparisonPanel comparison={comparison} coachMessage={coachMsg} />
       </footer>
     </div>
   );
