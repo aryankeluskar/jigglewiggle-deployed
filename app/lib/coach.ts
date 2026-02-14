@@ -1,99 +1,107 @@
 /**
- * Deterministic rule-based coaching logic.
- * Returns a coaching line based on the current score and issues.
+ * LLM-powered dance coach.
+ *
+ * Collects PoseSummary snapshots and periodically calls /api/coach
+ * to get an OpenAI-generated coaching line. Includes throttling,
+ * conversation history, and graceful fallback.
  */
 
-import type { ScoreFrame } from "./scoring";
+import type { PoseSummary } from "./scoring";
 
-const LOW_SCORE_LINES: Record<string, string[]> = {
-  "Arms too low": [
-    "Hands up — hit the shape!",
-    "Lift those arms higher!",
-    "Arms up! You got this!",
-  ],
-  "Arms uneven": [
-    "Match both arms!",
-    "Even it out — both sides!",
-    "Mirror your arms!",
-  ],
-  "Not moving enough": [
-    "Bigger moves!",
-    "Let loose — move more!",
-    "Don't hold back! Dance bigger!",
-  ],
-  "Moving too chaotically": [
-    "Control it — cleaner shapes.",
-    "Smooth it out!",
-    "Easy — find the groove.",
-  ],
-  "Low pose confidence": [
-    "Step into the light!",
-    "Make sure I can see you!",
-  ],
-};
+// --- Conversation history for multi-turn context ---
+type ChatMessage = { role: "user" | "assistant"; content: string };
+const conversationHistory: ChatMessage[] = [];
+const MAX_HISTORY = 6;
 
-const HYPE_LINES = [
-  "Clean! Keep it going.",
-  "Nice! That's the vibe.",
-  "You're killing it!",
-  "Fire! Stay in the pocket.",
-  "Smooth moves — keep flowing!",
-  "Yes! That energy!",
-  "On point! Don't stop.",
-  "Look at you go!",
-];
-
+// --- Throttle state ---
+let lastRequestTs = 0;
+let pendingRequest = false;
 let lastMessage = "";
-let lastMessageTs = 0;
-let lastHypeTs = 0;
 
-const MIN_INTERVAL_MS = 2000;
-const NO_REPEAT_WINDOW_MS = 6000;
-const HYPE_INTERVAL_MS = 8000;
+/** Minimum ms between LLM requests (don't spam the API) */
+const MIN_INTERVAL_MS = 3000;
 
 /**
- * Get a coaching message based on the current score frame.
- * Returns null if nothing should be spoken (throttled).
+ * Request a coaching message from the LLM.
+ *
+ * Call this on every score frame — it handles throttling internally.
+ * Returns the coaching string if a new one is available, or null
+ * if throttled / still waiting.
  */
-export function getCoachMessage(frame: ScoreFrame): string | null {
+export async function getCoachMessage(
+  summary: PoseSummary
+): Promise<string | null> {
   const now = Date.now();
 
-  // Throttle: at most one message every 2s
-  if (now - lastMessageTs < MIN_INTERVAL_MS) return null;
+  // Throttle: don't fire more often than MIN_INTERVAL_MS
+  if (now - lastRequestTs < MIN_INTERVAL_MS) return null;
 
-  let message: string | null = null;
+  // Don't stack requests
+  if (pendingRequest) return null;
 
-  if (frame.score >= 75) {
-    // Hype feedback — every 8-12s
-    if (now - lastHypeTs >= HYPE_INTERVAL_MS) {
-      message = pick(HYPE_LINES);
-      lastHypeTs = now;
+  // Skip if no pose detected and we already said so
+  if (summary.score === 0 && lastMessage.includes("no pose")) return null;
+
+  pendingRequest = true;
+  lastRequestTs = now;
+
+  try {
+    const res = await fetch("/api/coach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary,
+        history: conversationHistory.slice(-MAX_HISTORY),
+      }),
+    });
+
+    if (!res.ok) {
+      pendingRequest = false;
+      return null;
     }
-  } else if (frame.issues.length > 0) {
-    // Actionable feedback for the first issue
-    for (const issue of frame.issues) {
-      const lines = LOW_SCORE_LINES[issue];
-      if (lines) {
-        message = pick(lines);
-        break;
-      }
+
+    const data = await res.json();
+    const message: string = data.message ?? "Keep going!";
+
+    // Don't repeat exact same message
+    if (message === lastMessage) {
+      pendingRequest = false;
+      return null;
     }
-  }
 
-  if (!message) return null;
+    // Update conversation history
+    conversationHistory.push({
+      role: "user",
+      content: JSON.stringify(summary),
+    });
+    conversationHistory.push({
+      role: "assistant",
+      content: message,
+    });
 
-  // Don't repeat within 6s
-  if (message === lastMessage && now - lastMessageTs < NO_REPEAT_WINDOW_MS) {
+    // Trim history
+    while (conversationHistory.length > MAX_HISTORY * 2) {
+      conversationHistory.shift();
+    }
+
+    lastMessage = message;
+    pendingRequest = false;
+    return message;
+  } catch (err) {
+    console.error("Coach fetch error:", err);
+    pendingRequest = false;
     return null;
   }
-
-  lastMessage = message;
-  lastMessageTs = now;
-  return message;
 }
 
-function pick(arr: string[]): string {
-  return arr[Math.floor(Math.random() * arr.length)];
+/**
+ * Reset coach state (call when session restarts).
+ */
+export function resetCoach(): void {
+  conversationHistory.length = 0;
+  lastRequestTs = 0;
+  lastMessage = "";
+  pendingRequest = false;
 }
 
 // ──────────────────────────────────────────────
@@ -113,10 +121,4 @@ export function heyGenCoachAvatar(_style: string): void {
 /** TODO: Modal — host segmentation / pose model on Modal */
 export function modalSegmentationModel(_frame: ImageData): void {
   // Stub: call Modal-hosted model for advanced segmentation
-}
-
-/** TODO: OpenAI — multi-turn adaptive coach */
-export function openAIAdaptiveCoach(_history: string[]): Promise<string> {
-  // Stub: call OpenAI for multi-turn conversational coaching
-  return Promise.resolve("Keep it up!");
 }
