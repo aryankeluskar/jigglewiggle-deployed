@@ -1,20 +1,40 @@
 "use client";
 
+import { forwardRef, useImperativeHandle, useRef } from "react";
+
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
+type ExtractionStatus = "idle" | "extracting" | "done";
+
+export type YoutubePanelHandle = {
+  getCurrentTime: () => number;
+};
 
 type Props = {
   videoId: string | null;
   downloadStatus: DownloadStatus;
   downloadProgress: number;
   downloadError: string | null;
+  extractionStatus: ExtractionStatus;
+  extractionProgress: number;
 };
 
-export default function YoutubePanel({
-  videoId,
-  downloadStatus,
-  downloadProgress,
-  downloadError,
-}: Props) {
+const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel(
+  {
+    videoId,
+    downloadStatus,
+    downloadProgress,
+    downloadError,
+    extractionStatus,
+    extractionProgress,
+  },
+  ref
+) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    getCurrentTime: () => videoRef.current?.currentTime ?? 0,
+  }));
+
   if (!videoId || downloadStatus === "idle") {
     return (
       <div className="w-full h-full flex items-center justify-center bg-black/40 rounded-2xl border border-white/10">
@@ -53,9 +73,27 @@ export default function YoutubePanel({
     );
   }
 
+  if (extractionStatus === "extracting") {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-black/40 rounded-2xl border border-white/10">
+        <div className="text-white/60 text-sm">Analyzing dance moves…</div>
+        <div className="w-64 h-2 bg-white/10 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-cyan-500 transition-all duration-300"
+            style={{ width: `${extractionProgress}%` }}
+          />
+        </div>
+        <div className="text-white/40 text-xs">
+          {Math.round(extractionProgress)}%
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black">
       <video
+        ref={videoRef}
         src={`/api/video/${videoId}`}
         controls
         autoPlay
@@ -63,4 +101,6 @@ export default function YoutubePanel({
       />
     </div>
   );
-}
+});
+
+export default YoutubePanel;

@@ -35,6 +35,16 @@ export const POSE_CONNECTIONS: [number, number][] = [
   [30, 32],
 ];
 
+export type SkeletonStyle = {
+  mirror?: boolean;
+  strokeColor?: string;
+  fillColor?: string;
+  lineWidth?: number;
+  pointRadius?: number;
+  opacity?: number;
+  clear?: boolean;
+};
+
 /**
  * Draw a skeleton overlay on a canvas from pose landmarks.
  */
@@ -42,13 +52,27 @@ export function drawSkeleton(
   ctx: CanvasRenderingContext2D,
   landmarks: NormalizedLandmark[],
   width: number,
-  height: number
+  height: number,
+  style?: SkeletonStyle
 ) {
-  ctx.clearRect(0, 0, width, height);
+  const mirror = style?.mirror ?? true;
+  const strokeColor = style?.strokeColor ?? "#00FF88";
+  const fillColor = style?.fillColor ?? "#FF4488";
+  const lineWidth = style?.lineWidth ?? 3;
+  const pointRadius = style?.pointRadius ?? 5;
+  const opacity = style?.opacity ?? 1;
+  const clear = style?.clear ?? true;
+
+  if (clear) ctx.clearRect(0, 0, width, height);
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+
+  const xPos = (x: number) => (mirror ? (1 - x) * width : x * width);
 
   // Draw connections
-  ctx.strokeStyle = "#00FF88";
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = lineWidth;
   ctx.lineCap = "round";
 
   for (const [a, b] of POSE_CONNECTIONS) {
@@ -58,21 +82,22 @@ export function drawSkeleton(
     if ((la.visibility ?? 0) < 0.3 || (lb.visibility ?? 0) < 0.3) continue;
 
     ctx.beginPath();
-    // Mirror x for webcam
-    ctx.moveTo((1 - la.x) * width, la.y * height);
-    ctx.lineTo((1 - lb.x) * width, lb.y * height);
+    ctx.moveTo(xPos(la.x), la.y * height);
+    ctx.lineTo(xPos(lb.x), lb.y * height);
     ctx.stroke();
   }
 
   // Draw keypoints
-  ctx.fillStyle = "#FF4488";
+  ctx.fillStyle = fillColor;
   for (let i = 11; i < landmarks.length; i++) {
     const lm = landmarks[i];
     if (!lm || (lm.visibility ?? 0) < 0.3) continue;
     ctx.beginPath();
-    ctx.arc((1 - lm.x) * width, lm.y * height, 5, 0, 2 * Math.PI);
+    ctx.arc(xPos(lm.x), lm.y * height, pointRadius, 0, 2 * Math.PI);
     ctx.fill();
   }
+
+  ctx.restore();
 }
 
 /**

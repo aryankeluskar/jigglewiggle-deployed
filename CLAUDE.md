@@ -1,0 +1,66 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+"Steal This Move" — a real-time AI dance coaching web app (TreeHacks 2026 hackathon). User pastes a YouTube URL, the video downloads server-side, plays in a custom player alongside a webcam feed with live pose detection, scoring, and AI coaching feedback.
+
+## Commands
+
+- **Dev server:** `pnpm dev` (runs on localhost:3000)
+- **Build:** `pnpm build`
+- **Lint:** `pnpm lint` (ESLint with Next.js config)
+- **No test suite currently exists**
+
+## System Dependencies
+
+- **yt-dlp** — required for YouTube video downloads (spawned via child_process)
+- **ffmpeg** — used by yt-dlp for muxing
+- **OPENAI_API_KEY** — env var required for AI coach (set in `.env.local`)
+
+## Architecture
+
+### Data Flow
+
+```
+YouTube URL → /api/download (SSE progress via yt-dlp) → /tmp/stealthismove/{id}.mp4
+  → /api/video/[id] (serves MP4 with range requests)
+  → Client: pose extraction (hidden video+canvas, MediaPipe, 10fps)
+  → PoseTimeline displayed as MoveQueue strip
+
+Webcam → MediaPipe Pose (CDN-loaded, on-device) → skeleton overlay + scoring
+  → buildPoseSummary() → /api/coach (OpenAI) → text + Web Speech TTS
+```
+
+### Key Files
+
+- **`app/page.tsx`** — Main orchestrator. Owns all top-level state (download, extraction, scoring, coaching). Coordinates the full pipeline.
+- **`app/lib/pose.ts`** — MediaPipe Pose setup via CDN (`@mediapipe/pose@0.5.1675469404`). Exports `loadPose()`, `drawSkeleton()` (parameterized with `SkeletonStyle`), and pose connection/landmark types.
+- **`app/lib/videoPoseExtractor.ts`** — Client-side pipeline: creates hidden video+canvas, seeks through frames at 0.1s intervals, runs MediaPipe on each, returns `PoseTimeline`.
+- **`app/lib/scoring.ts`** — Choreography-agnostic scoring: movement energy (keypoint velocity), form heuristics (arm height, torso angle, symmetry). Exports `computeScore()` and `buildPoseSummary()`.
+- **`app/lib/coach.ts`** — Maintains conversation history (last 6 exchanges), throttles to one call per 3s. Sends pose summaries to `/api/coach`.
+- **`app/api/download/route.ts`** — POST endpoint. Spawns yt-dlp, parses stdout for progress, streams SSE events (`progress`, `done`, `error`). Caches to `/tmp/stealthismove/`.
+- **`app/api/video/[id]/route.ts`** — GET endpoint. Serves MP4 with HTTP range request support. Uses `cancelled` flag pattern to prevent ERR_INVALID_STATE on stream cancellation.
+- **`app/api/coach/route.ts`** — POST endpoint. OpenAI chat completion with system prompt for dance coaching personality.
+
+### Important Patterns
+
+- **SSE streaming for downloads:** `/api/download` streams `data: {json}\n\n` events. Client reads with `res.body.getReader()` and parses line-by-line.
+- **forwardRef + useImperativeHandle:** `YoutubePanel` exposes `getCurrentTime()` so `page.tsx` can poll video position via rAF loop for MoveQueue sync.
+- **Stable callback ref:** `onPoseRef` pattern in `page.tsx` prevents CameraPanel remounts when scoring/coaching logic changes. The actual `handlePose` callback passed to CameraPanel has empty deps.
+- **MediaPipe loaded from CDN:** Not bundled — loaded dynamically via script injection in `pose.ts` to avoid large WASM in the Next.js bundle.
+- **Video ID validation:** Regex `^[a-zA-Z0-9_-]{11}$` in download route. Files stored at `/tmp/stealthismove/{videoId}.mp4`.
+
+### Chrome Extension
+
+Manifest v3 extension in `/extension/`. Sends the current YouTube tab URL to `http://localhost:3000?url=...`. The web app reads the `?url=` query param on mount.
+
+## Tech Stack
+
+- Next.js 16 (App Router), React 19, TypeScript
+- Tailwind CSS 4 (via `@tailwindcss/postcss`)
+- MediaPipe Pose (CDN, client-side WASM)
+- OpenAI API (server-side, for coaching)
+- Web Speech API (client-side TTS)
+- yt-dlp + ffmpeg (server-side, video download)
