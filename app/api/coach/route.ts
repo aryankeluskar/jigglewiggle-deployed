@@ -2,72 +2,59 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { AppMode } from "../../shared/mode";
 
-const DANCE_COACH_PROMPT = `You're a hype dance coach calling out real-time cues to a dancer matching a YouTube choreography. You'll get a JSON pose snapshot — reply with ONE spoken coaching line (max 15 words). This will be read aloud via TTS so write it exactly as spoken words: contractions, exclamations, rhythm. No written-text phrasing, no quotes, no JSON.
+const DANCE_COACH_PROMPT = `You're a hype dance coach in the room with someone learning choreography in real-time. You'll get a JSON pose snapshot with context — reply with ONE spoken coaching line (max 15 words). This will be read aloud via TTS so write it exactly as spoken words.
+
+ABSOLUTE RULE — UNIQUENESS:
+- You'll see "recentCoachLines" — these are your LAST lines. DO NOT repeat, rephrase, or echo ANY of them. Each response must use completely different words and structure.
+- You'll see "requiredStyle" — you MUST use that specific coaching style for this response. This changes every call to keep you varied.
+- If you catch yourself about to say something similar to a recent line, STOP and think of something totally new.
+
+REACT TO CHANGES (not static values):
+- "delta" shows what CHANGED since last check — comment on the change itself
+- "milestone" marks a special moment — celebrate it if present
+- If no delta exists, find something NEW to talk about (breathing, rhythm, transitions, a specific body part you haven't mentioned)
 
 REFERENCE DATA (when present):
-The "reference" field compares the dancer to the video choreography frame-by-frame.
-- matchScore: 0-100 how close they are to the reference pose
-- limbScores: per-limb accuracy (rightArm, leftArm, rightLeg, leftLeg, torso)
-- worstLimb: the limb furthest from the reference
-- refPoseLabel: what the reference pose looks like (e.g. "T-pose", "Arms up", "Star jump")
-When reference data exists, PRIORITIZE it over generic body-mechanics feedback. Call out the specific limb and the target pose.
+- matchScore, limbScores, worstLimb, refPoseLabel — PRIORITIZE these over generic feedback
 
-PHASE AWARENESS (use sessionSeconds):
-- 0-15s: warm-up — encouraging, get-moving energy ("Let's go!", "Feel the beat!")
-- 15-60s: corrections — specific, actionable cues about limbs and poses
-- 60s+: refinement & hype — polish details, celebrate good runs
+PHASE AWARENESS (sessionSeconds):
+- 0-15s: warm-up energy
+- 15-45s: first corrections
+- 45-90s: deeper coaching (combos, flow, transitions)
+- 90-150s: refinement (polish, celebrate)
+- 150s+: endurance (fresh challenges, keep it interesting)
 
 SCORE & TREND:
-- score >= 80, steady/improving: hype it ("Yo, that was clean!", "Nailing it!")
-- score < 40: urgent corrections on the worst limb
-- trend "improving" after "declining": celebrate the comeback ("There it is! Back on it!")
-- trend "declining": re-engage ("Where's that left arm? Get it up!")
+- score >= 80 + improving: celebrate specifically
+- score 50-79: encouragement + one fix
+- score < 40: urgent but fun
+- trend "improving": acknowledge growth
+- trend "declining": re-engage with energy
 
-BODY MECHANICS (fallback when no reference):
-- motionEnergy < 0.01: they're frozen — get them moving
-- motionEnergy > 0.1: too wild — tell them to control it
-- armSymmetry > 0.15: cue mirroring
-- armHeight > 0.1: hands too low
-- torsoLean > 0.05: center their weight
+Reply with ONLY the coaching line. No quotes, no JSON, no explanation.`;
 
-STYLE:
-- Vary structure: questions ("Where's that left arm?"), commands ("Hit it!"), reactions ("Yo, that was clean!")
-- Sound like a real person coaching in the room, not a text prompt
-- Never repeat the exact same line back-to-back
-- Reply with ONLY the coaching line`;
+const GYM_COACH_PROMPT = `You're a personal trainer giving real-time form cues to someone following an exercise video. You'll get a JSON pose snapshot with context — reply with ONE spoken coaching line (max 15 words). This will be read aloud via TTS.
 
-const GYM_COACH_PROMPT = `You're a focused fitness form coach giving real-time cues to someone following an exercise video. You'll get a JSON pose snapshot — reply with ONE spoken coaching line (max 15 words). This will be read aloud via TTS so write it exactly as spoken words.
+ABSOLUTE RULE — UNIQUENESS:
+- You'll see "recentCoachLines" — DO NOT repeat, rephrase, or echo ANY of them. Each response must use completely different words and structure.
+- You'll see "requiredStyle" — you MUST use that specific coaching style for this response.
+- If no delta exists, find something NEW (breathing, tempo, range of motion, a body part you haven't mentioned).
+
+REACT TO CHANGES:
+- "delta" shows what CHANGED — comment on the change
+- "milestone" marks a special moment — celebrate it
 
 REFERENCE DATA (when present):
-The "reference" field compares the user to the video exercise frame-by-frame.
-- matchScore: 0-100 how close they are to the reference pose
-- limbScores: per-limb accuracy (rightArm, leftArm, rightLeg, leftLeg, torso)
-- worstLimb: the limb furthest from the reference
-When reference data exists, PRIORITIZE it over generic body-mechanics feedback. Call out the specific limb and the target position.
+- matchScore, limbScores, worstLimb — prioritize these over generic cues.
 
-PHASE AWARENESS (use sessionSeconds):
-- 0-15s: warm-up — encouraging, form reminders ("Let's get it!", "Set your stance")
-- 15-60s: form corrections — specific, technical ("Keep your back straight", "Deeper squat")
-- 60s+: endurance motivation — push through, maintain form
+PHASE AWARENESS (sessionSeconds):
+- 0-15s: warm-up — stance, form reminders
+- 15-45s: form corrections — specific, technical
+- 45-90s: deeper coaching — breathing, tempo
+- 90-150s: endurance — maintain under fatigue
+- 150s+: push & motivate — dig deep
 
-SCORE & TREND:
-- score >= 80, steady/improving: affirm form ("Solid form!", "That's it, locked in!")
-- score < 40: urgent corrections on the worst limb
-- trend "improving" after "declining": acknowledge recovery ("There we go, back on track!")
-- trend "declining": refocus ("Tighten up that form!")
-
-BODY MECHANICS:
-- motionEnergy < 0.01: check if they're resting or holding a position — if holding, affirm it
-- motionEnergy > 0.1: too fast, losing form — tell them to slow down
-- torsoLean > 0.05: posture correction ("Straighten that back!")
-- armSymmetry > 0.15: even out form ("Match those arms!")
-- kneeBend: cue squat depth when relevant
-
-STYLE:
-- Sound like a personal trainer: direct, motivating, no-nonsense
-- "Control the movement", "Hold it", "Full range of motion"
-- Never repeat the exact same line back-to-back
-- Reply with ONLY the coaching line`;
+Reply with ONLY the coaching line. No quotes, no JSON.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -97,14 +84,13 @@ export async function POST(req: NextRequest) {
 
     const openai = new OpenAI({ apiKey });
 
-    // Build messages array
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: systemPrompt },
     ];
 
-    // Include recent conversation history (last 6 exchanges for context)
+    // Include conversation history (up to 16 messages for better context)
     if (Array.isArray(history)) {
-      for (const msg of history.slice(-6)) {
+      for (const msg of history.slice(-16)) {
         messages.push({
           role: msg.role as "user" | "assistant",
           content: msg.content,
@@ -112,7 +98,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Current pose data as the new user message
     messages.push({
       role: "user",
       content: `Current pose snapshot:\n${JSON.stringify(summary, null, 2)}`,
@@ -121,27 +106,73 @@ export async function POST(req: NextRequest) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages,
-      max_tokens: 60,
-      temperature: 0.7,
+      max_tokens: 80,
+      temperature: 0.95,
+      presence_penalty: 0.6,  // Discourage repeating tokens from prior output
+      frequency_penalty: 0.4, // Discourage repeating common phrases
     });
 
     const message =
       completion.choices[0]?.message?.content?.trim() ?? "Keep moving!";
 
-    // Generate speech audio via OpenAI TTS — use different voice for gym mode
+    // Generate speech audio via ElevenLabs TTS
     let audio: string | undefined;
-    try {
-      const ttsRes = await openai.audio.speech.create({
-        model: "tts-1-hd",
-        voice: isGym ? "onyx" : "shimmer",
-        input: message,
-        response_format: "mp3",
-        speed: 1.15,
-      });
-      const buf = Buffer.from(await ttsRes.arrayBuffer());
-      audio = buf.toString("base64");
-    } catch (ttsErr) {
-      console.error("TTS error (falling back to text only):", ttsErr);
+    const elevenLabsKey = process.env.ELEVENLABS_API_KEY;
+    if (elevenLabsKey) {
+      try {
+        // Voice IDs — pick energetic voices suited to coaching
+        // Dance: "Rachel" (21m00Tcm4TlvDq8ikWAM) — bright & expressive
+        // Gym:   "Adam"   (pNInz6obpgDQGcFmaJgB) — deep & authoritative
+        const voiceId = isGym
+          ? "pNInz6obpgDQGcFmaJgB"
+          : "21m00Tcm4TlvDq8ikWAM";
+
+        const ttsRes = await fetch(
+          `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+          {
+            method: "POST",
+            headers: {
+              "xi-api-key": elevenLabsKey,
+              "Content-Type": "application/json",
+              Accept: "audio/mpeg",
+            },
+            body: JSON.stringify({
+              text: message,
+              model_id: "eleven_turbo_v2_5",
+              voice_settings: {
+                stability: 0.4,
+                similarity_boost: 0.75,
+                style: 0.6,
+                use_speaker_boost: true,
+              },
+            }),
+          }
+        );
+
+        if (ttsRes.ok) {
+          const buf = Buffer.from(await ttsRes.arrayBuffer());
+          audio = buf.toString("base64");
+        } else {
+          console.error("ElevenLabs TTS error:", ttsRes.status, await ttsRes.text());
+        }
+      } catch (ttsErr) {
+        console.error("ElevenLabs TTS error (falling back to text only):", ttsErr);
+      }
+    } else {
+      // Fallback to OpenAI TTS if no ElevenLabs key
+      try {
+        const ttsRes = await openai.audio.speech.create({
+          model: "tts-1-hd",
+          voice: isGym ? "onyx" : "shimmer",
+          input: message,
+          response_format: "mp3",
+          speed: 1.15,
+        });
+        const buf = Buffer.from(await ttsRes.arrayBuffer());
+        audio = buf.toString("base64");
+      } catch (ttsErr) {
+        console.error("OpenAI TTS fallback error:", ttsErr);
+      }
     }
 
     return NextResponse.json({ message, audio });

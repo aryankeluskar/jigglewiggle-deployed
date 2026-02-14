@@ -110,7 +110,7 @@ export default function Home() {
   const [segmentationProgress, setSegmentationProgress] = useState(0);
   const [segmentedVideoUrl, setSegmentedVideoUrl] = useState<string | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [isVideoPaused, setIsVideoPaused] = useState(false);
+  const [isVideoPaused, setIsVideoPaused] = useState(true);
   const [referenceVideoAspectRatio, setReferenceVideoAspectRatio] = useState(16/9);
   const [webcamAspectRatio, setWebcamAspectRatio] = useState(4/3);
   const [gestureToast, setGestureToast] = useState<GestureAction | null>(null);
@@ -366,7 +366,7 @@ export default function Home() {
     let raf: number;
     const tick = () => {
       const t = youtubePanelRef.current?.getCurrentTime() ?? 0;
-      const paused = youtubePanelRef.current?.isPaused() ?? false;
+      const paused = youtubePanelRef.current?.isPaused() ?? true;
       const aspectRatio = youtubePanelRef.current?.getVideoAspectRatio() ?? 16/9;
       setCurrentVideoTime(t);
       setIsVideoPaused(paused);
@@ -551,7 +551,8 @@ export default function Home() {
       summary.reference = detailed;
     }
 
-    if (!replayModeRef.current) {
+    // Only coach while the reference video is actually playing (not paused/before start)
+    if (!replayModeRef.current && !isVideoPaused) {
       getCoachMessage(summary, mode).then((result) => {
         if (result) {
           setCoachMsg(result.message);
