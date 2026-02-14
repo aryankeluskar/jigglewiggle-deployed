@@ -131,32 +131,111 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
     );
   }
 
-  if (extractionStatus === "extracting") {
+  // Show loading screens while extraction or segmentation are in progress
+  const segmentationPending =
+    segmentationStatus === "idle" ||
+    segmentationStatus === "segmenting";
+  const segmentationReady =
+    segmentationStatus === "done" ||
+    segmentationStatus === "error" ||
+    segmentationStatus === "unavailable";
+
+  if (extractionStatus === "extracting" || (!segmentationReady && downloadStatus === "done")) {
+    // Both extraction and segmentation may run in parallel — show dual progress
+    const showExtraction = extractionStatus === "extracting";
+    const showSegmentation = segmentationPending && downloadStatus === "done";
+
     return (
-      <div className="relative w-full h-full flex flex-col items-center justify-center gap-5 bg-black/50 border border-neon-violet/15 rounded">
+      <div className="relative w-full h-full flex flex-col items-center justify-center gap-6 bg-black/50 border border-neon-violet/15 rounded">
         <HudCorners color="neon-violet" />
-        <PanelLabel>Analyzing</PanelLabel>
+        <PanelLabel>Preparing</PanelLabel>
+
         <div
           className="neon-text-violet text-xs tracking-[0.2em] uppercase"
           style={{ fontFamily: "var(--font-audiowide)" }}
         >
-          Analyzing Moves
+          Preparing Your Dance
         </div>
-        <div className="w-56 h-1.5 bg-white/5 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-300"
-            style={{
-              width: `${extractionProgress}%`,
-              background: "linear-gradient(90deg, #b829ff, #ff00aa)",
-              boxShadow: "0 0 10px rgba(184, 41, 255, 0.4)",
-            }}
-          />
+
+        {/* Extraction progress */}
+        <div className="w-64 flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <span
+              className="text-[9px] tracking-[0.15em] uppercase"
+              style={{
+                fontFamily: "var(--font-audiowide)",
+                color: showExtraction ? "rgba(184, 41, 255, 0.8)" : "rgba(184, 41, 255, 0.35)",
+              }}
+            >
+              Analyzing Moves
+            </span>
+            <span
+              className="text-[9px] tracking-[0.15em]"
+              style={{
+                fontFamily: "var(--font-audiowide)",
+                color: showExtraction ? "rgba(184, 41, 255, 0.8)" : "rgba(184, 41, 255, 0.35)",
+              }}
+            >
+              {extractionStatus === "done" ? "✓" : `${Math.round(extractionProgress)}%`}
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${extractionStatus === "done" ? 100 : extractionProgress}%`,
+                background: "linear-gradient(90deg, #b829ff, #ff00aa)",
+                boxShadow: showExtraction ? "0 0 10px rgba(184, 41, 255, 0.4)" : "none",
+                opacity: extractionStatus === "done" ? 0.4 : 1,
+              }}
+            />
+          </div>
         </div>
+
+        {/* Segmentation progress */}
+        {showSegmentation && (
+          <div className="w-64 flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span
+                className="text-[9px] tracking-[0.15em] uppercase text-neon-green/80"
+                style={{ fontFamily: "var(--font-audiowide)" }}
+              >
+                Segmenting Dancer
+              </span>
+              <span
+                className="text-[9px] tracking-[0.15em] text-neon-green/80"
+                style={{ fontFamily: "var(--font-audiowide)" }}
+              >
+                {(segmentationProgress ?? 0) > 0
+                  ? `${Math.round(segmentationProgress ?? 0)}%`
+                  : "Starting..."}
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${segmentationProgress ?? 0}%`,
+                  background: "linear-gradient(90deg, #00ff88, #00ccff)",
+                  boxShadow: "0 0 10px rgba(0, 255, 136, 0.3)",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Overall percentage */}
         <div
           className="neon-text-violet text-2xl font-bold"
           style={{ fontFamily: "var(--font-audiowide)" }}
         >
-          {Math.round(extractionProgress)}%
+          {Math.round(
+            showExtraction && showSegmentation
+              ? (extractionProgress + (segmentationProgress ?? 0)) / 2
+              : showExtraction
+                ? extractionProgress
+                : (segmentationProgress ?? 0)
+          )}%
         </div>
       </div>
     );
@@ -174,18 +253,6 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
         className="absolute inset-0 w-full h-full object-contain"
       />
 
-      {/* Segmentation status badge */}
-      {segmentationStatus === "segmenting" && (
-        <div className="absolute bottom-2 right-3 z-10 flex items-center gap-2 bg-black/80 px-2.5 py-1 border border-neon-green/30 rounded-sm">
-          <span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-live-dot" />
-          <span
-            className="text-[9px] tracking-[0.15em] text-neon-green/80 uppercase"
-            style={{ fontFamily: "var(--font-audiowide)" }}
-          >
-            Segmenting {segmentationProgress ? `${Math.round(segmentationProgress)}%` : ""}
-          </span>
-        </div>
-      )}
       {segmentationStatus === "done" && (
         <div className="absolute bottom-2 right-3 z-10 flex items-center gap-2 bg-black/80 px-2.5 py-1 border border-neon-green/30 rounded-sm">
           <span className="w-1.5 h-1.5 rounded-full bg-neon-green" />

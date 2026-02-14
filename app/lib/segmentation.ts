@@ -12,12 +12,24 @@ const MAX_POLL_SECONDS = 300; // 5 minute timeout
 /** Parse frame progress from Replicate logs like "85%|████| 245/288 [00:28<..." */
 function parseProgressFromLogs(logs?: string): number | null {
   if (!logs) return null;
-  // Match the last percentage in the progress bar output
   const matches = logs.match(/(\d+)%\|/g);
   if (!matches || matches.length === 0) return null;
   const last = matches[matches.length - 1];
   const pct = parseInt(last, 10);
   return isNaN(pct) ? null : pct;
+}
+
+/** Save a Replicate output URL to local disk cache via the server. */
+async function saveSegmentedVideo(videoId: string, replicateUrl: string): Promise<void> {
+  try {
+    await fetch("/api/segment/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoId, url: replicateUrl }),
+    });
+  } catch (err) {
+    console.warn("[segmentation] Failed to cache segmented video:", err);
+  }
 }
 
 export async function segmentVideo(
@@ -37,11 +49,19 @@ export async function segmentVideo(
     throw new Error(data.error || "Failed to start segmentation");
   }
 
-  const { predictionId } = await res.json();
+  const data = await res.json();
+
+  // Server found a cached segmented video on disk
+  if (data.cached) {
+    console.log("[segmentation] Using cached segmented video");
+    onProgress?.("Complete!", 100);
+    return `/api/segment/video/${videoId}`;
+  }
+
+  const { predictionId } = data;
   console.log("[segmentation] Prediction ID:", predictionId);
   onProgress?.("Queued...", 10);
 
-  // Poll until complete
   const startTime = Date.now();
 
   while (true) {
@@ -61,7 +81,6 @@ export async function segmentVideo(
     const prediction: PredictionResponse = await pollRes.json();
 
     if (prediction.status === "succeeded") {
-      // Output can be a string URL or an array of URLs
       const outputUrl = Array.isArray(prediction.output)
         ? prediction.output[0]
         : prediction.output;
@@ -69,9 +88,14 @@ export async function segmentVideo(
       if (!outputUrl) {
         throw new Error("No output from segmentation");
       }
+
+      onProgress?.("Saving...", 98);
+
+      // Save to disk so future loads are instant
+      await saveSegmentedVideo(videoId, outputUrl);
+
       onProgress?.("Complete!", 100);
-      // Return proxied URL to avoid CORS
-      return `/api/segment/proxy?url=${encodeURIComponent(outputUrl)}`;
+      return `/api/segment/video/${videoId}`;
     }
 
     if (prediction.status === "failed" || prediction.status === "canceled") {
@@ -79,14 +103,11 @@ export async function segmentVideo(
       throw new Error(prediction.error || "Segmentation failed");
     }
 
-    // Parse real frame progress from Replicate model logs
     if (prediction.status === "processing") {
       const framePct = parseProgressFromLogs(prediction.logs);
-      // Map frame progress (0-100) to overall progress range (15-95)
       const progress = framePct !== null ? 15 + Math.round(framePct * 0.8) : 15;
       onProgress?.(`Segmenting... ${framePct ?? ""}%`, progress);
     } else {
-      // "starting" = cold boot
       onProgress?.("Starting model...", 10);
     }
 

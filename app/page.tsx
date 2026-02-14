@@ -247,9 +247,15 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadStatus, videoId]);
 
-  // Poll video currentTime via rAF loop
+  // Video is ready when both extraction and segmentation are resolved
+  const segmentationReady =
+    segmentationStatus === "done" ||
+    segmentationStatus === "error" ||
+    segmentationStatus === "unavailable";
+
+  // Poll video currentTime via rAF loop (video only mounts when ready)
   useEffect(() => {
-    if (extractionStatus !== "done" || !poseTimeline) return;
+    if (extractionStatus !== "done" || !poseTimeline || !segmentationReady) return;
 
     let raf: number;
     const tick = () => {
@@ -259,7 +265,7 @@ export default function Home() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [extractionStatus, poseTimeline]);
+  }, [extractionStatus, poseTimeline, segmentationReady]);
 
   // Stable callback ref to avoid re-mounting CameraPanel
   const onPoseRef = useRef<(landmarks: NormalizedLandmark[] | null) => void>(null);

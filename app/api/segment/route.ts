@@ -5,6 +5,10 @@ import path from "path";
 
 const VIDEO_DIR = "/tmp/jigglewiggle";
 
+function maskPath(videoId: string) {
+  return path.join(VIDEO_DIR, `${videoId}_mask.mp4`);
+}
+
 export async function POST(request: NextRequest) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) {
@@ -18,6 +22,15 @@ export async function POST(request: NextRequest) {
 
   if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     return Response.json({ error: "Invalid video ID" }, { status: 400 });
+  }
+
+  // Check for cached segmentation on disk
+  try {
+    await access(maskPath(videoId));
+    console.log(`[segment] Cache hit for ${videoId}`);
+    return Response.json({ cached: true });
+  } catch {
+    // not cached, continue
   }
 
   const filePath = path.join(VIDEO_DIR, `${videoId}.mp4`);
@@ -36,8 +49,6 @@ export async function POST(request: NextRequest) {
 
     const replicate = new Replicate({ auth: token });
 
-    // Pass a Blob so the SDK uploads the file via replicate.files.create()
-    // instead of inlining a huge base64 data URL in the JSON body.
     const videoBlob = new Blob([buffer], { type: "video/mp4" });
 
     console.log(`[segment] Starting segmentation for ${videoId} (${buffer.length} bytes)`);
