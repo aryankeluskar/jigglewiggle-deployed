@@ -11,6 +11,7 @@ type Props = {
   currentTime: number;
   livePoseRef: React.RefObject<NormalizedLandmark[] | null>;
   onSeek: (time: number) => void;
+  playbackRate?: number;
 };
 
 const CARD_W = 96;
@@ -27,11 +28,10 @@ const REF_STYLE = {
   clear: true,
 } as const;
 
-export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }: Props) {
+export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek, playbackRate = 1 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const prevSampleIdxRef = useRef(0);
   const [matchScore, setMatchScore] = useState<number | null>(null);
   // Track best score achieved per card index (persists as user dances through)
   const cardScoresRef = useRef<Map<number, number>>(new Map());
@@ -79,42 +79,6 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
     }
     return closest;
   }, [samples, currentTime]);
-
-  // When active card changes: redraw active in normalized space, restore previous
-  useEffect(() => {
-    const prevIdx = prevSampleIdxRef.current;
-
-    if (prevIdx !== currentSampleIdx && prevIdx < samples.length) {
-      const prevSample = samples[prevIdx];
-      const canvas = canvasRefs.current.get(prevSample.idx);
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          const landmarks = timeline[prevSample.idx]?.landmarks ?? [];
-          if (landmarks.length > 0) {
-            drawSkeleton(ctx, landmarks, CARD_W, CARD_H, REF_STYLE);
-          }
-        }
-      }
-    }
-
-    const sample = samples[currentSampleIdx];
-    if (sample) {
-      const canvas = canvasRefs.current.get(sample.idx);
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          const landmarks = timeline[sample.idx]?.landmarks ?? [];
-          if (landmarks.length > 0) {
-            const normRef = normalizePose(landmarks);
-            drawSkeleton(ctx, normRef, CARD_W, CARD_H, REF_STYLE);
-          }
-        }
-      }
-    }
-
-    prevSampleIdxRef.current = currentSampleIdx;
-  }, [currentSampleIdx, samples, timeline]);
 
   // rAF loop: draw live overlay + track per-card performance
   useEffect(() => {
@@ -184,13 +148,19 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek }
   const halfVisible = Math.floor(VISIBLE_CARDS / 2);
   const offsetX = -(currentSampleIdx - halfVisible) * (CARD_W + 12);
 
+  // Scale transition duration inversely with playback rate
+  // Slower video (0.5x) = slower transitions (600ms)
+  // Faster video (2x) = faster transitions (150ms)
+  const transitionDuration = 300 / playbackRate;
+
   return (
     <div className="w-full overflow-hidden" style={{ height: CARD_H + 44 }}>
       <div
         ref={containerRef}
-        className="flex gap-3 items-end transition-transform duration-300 ease-out"
+        className="flex gap-3 items-end ease-out"
         style={{
           transform: `translateX(calc(50% - ${CARD_W / 2}px + ${offsetX}px))`,
+          transition: `transform ${transitionDuration}ms ease-out`,
         }}
       >
         {samples.map((sample, i) => {

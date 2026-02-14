@@ -9,6 +9,9 @@ type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailabl
 export type YoutubePanelHandle = {
   getCurrentTime: () => number;
   seekTo: (time: number) => void;
+  setPlaybackRate: (rate: number) => void;
+  isPaused: () => boolean;
+  getVideoAspectRatio: () => number;
 };
 
 type Props = {
@@ -64,6 +67,15 @@ const YoutubePanel = forwardRef<YoutubePanelHandle, Props>(function YoutubePanel
     getCurrentTime: () => videoRef.current?.currentTime ?? 0,
     seekTo: (time: number) => {
       if (videoRef.current) videoRef.current.currentTime = time;
+    },
+    setPlaybackRate: (rate: number) => {
+      if (videoRef.current) videoRef.current.playbackRate = rate;
+    },
+    isPaused: () => videoRef.current?.paused ?? true,
+    getVideoAspectRatio: () => {
+      const video = videoRef.current;
+      if (!video || !video.videoWidth || !video.videoHeight) return 16/9;
+      return video.videoWidth / video.videoHeight;
     },
   }));
 

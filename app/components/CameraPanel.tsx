@@ -9,6 +9,9 @@ type Props = {
   onPose: (landmarks: NormalizedLandmark[] | null) => void;
   segmentedVideoUrl?: string | null;
   referenceVideoTime?: number;
+  playbackRate?: number;
+  isReferencePaused?: boolean;
+  referenceVideoAspectRatio?: number;
 };
 
 const NEON_SKELETON_STYLE = {
@@ -21,7 +24,7 @@ const NEON_SKELETON_STYLE = {
   clear: true,
 } as const;
 
-export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime }: Props) {
+export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, playbackRate = 1, isReferencePaused = false, referenceVideoAspectRatio = 16/9 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,22 +53,39 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
     video.src = segmentedVideoUrl;
     video.loop = true;
     video.muted = true;
+    video.playbackRate = playbackRate;
     video.play().catch((err) => {
       console.error("Overlay video play failed:", err);
     });
-  }, [segmentedVideoUrl]);
+  }, [segmentedVideoUrl, playbackRate]);
 
-  // Sync overlay video time with reference video
+  // Update playback rate when it changes
+  useEffect(() => {
+    const video = overlayVideoRef.current;
+    if (!video || !segmentedVideoUrl) return;
+    video.playbackRate = playbackRate;
+  }, [playbackRate, segmentedVideoUrl]);
+
+  // Sync overlay video time and play/pause state with reference video
   useEffect(() => {
     const video = overlayVideoRef.current;
     if (!video || !segmentedVideoUrl || referenceVideoTime === undefined) return;
     if (video.readyState < 2) return;
 
+    // Sync play/pause state
+    if (isReferencePaused && !video.paused) {
+      video.pause();
+    } else if (!isReferencePaused && video.paused) {
+      video.play().catch(() => {
+        // Ignore play failures
+      });
+    }
+
     // Only seek if drift is significant (>0.3s) to avoid constant seeking
     if (Math.abs(video.currentTime - referenceVideoTime) > 0.3) {
       video.currentTime = referenceVideoTime;
     }
-  }, [referenceVideoTime, segmentedVideoUrl]);
+  }, [referenceVideoTime, segmentedVideoUrl, isReferencePaused]);
 
   // Render the outline overlay on a separate canvas via rAF
   useEffect(() => {
@@ -80,23 +100,42 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
         overlayCanvas.width = overlayCanvas.offsetWidth;
         overlayCanvas.height = overlayCanvas.offsetHeight;
 
-        // Resize temp canvas to match
-        tempCanvas.width = overlayCanvas.width;
-        tempCanvas.height = overlayCanvas.height;
+        const ctx = overlayCanvas.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-        const outlineData = extractOutline(overlayVideo, tempCanvas);
-        if (outlineData) {
-          const ctx = overlayCanvas.getContext("2d");
-          if (ctx) {
-            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            // Draw outline to temp canvas, then mirror onto overlay canvas
+          // Calculate aspect-ratio-fitted rectangle (like object-fit: contain)
+          const containerWidth = overlayCanvas.width;
+          const containerHeight = overlayCanvas.height;
+          const containerAspect = containerWidth / containerHeight;
+
+          let drawWidth, drawHeight, offsetX, offsetY;
+
+          if (referenceVideoAspectRatio > containerAspect) {
+            // Video is wider than container - fit to width
+            drawWidth = containerWidth;
+            drawHeight = containerWidth / referenceVideoAspectRatio;
+            offsetX = 0;
+            offsetY = (containerHeight - drawHeight) / 2;
+          } else {
+            // Video is taller than container - fit to height
+            drawHeight = containerHeight;
+            drawWidth = containerHeight * referenceVideoAspectRatio;
+            offsetX = (containerWidth - drawWidth) / 2;
+            offsetY = 0;
+          }
+
+          // Resize temp canvas to match the fitted video size
+          tempCanvas.width = drawWidth;
+          tempCanvas.height = drawHeight;
+
+          const outlineData = extractOutline(overlayVideo, tempCanvas);
+          if (outlineData) {
             const tempCtx = tempCanvas.getContext("2d");
             if (tempCtx) {
               tempCtx.putImageData(outlineData, 0, 0);
-              ctx.save();
-              ctx.scale(-1, 1);
-              ctx.drawImage(tempCanvas, -overlayCanvas.width, 0, overlayCanvas.width, overlayCanvas.height);
-              ctx.restore();
+              // Draw at the correct position with correct size to match reference video
+              ctx.drawImage(tempCanvas, offsetX, offsetY, drawWidth, drawHeight);
             }
           }
         }
@@ -110,7 +149,7 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
     return () => {
       cancelAnimationFrame(overlayRafRef.current);
     };
-  }, [segmentedVideoUrl]);
+  }, [segmentedVideoUrl, referenceVideoAspectRatio]);
 
   const processFrame = useCallback(async () => {
     if (!activeRef.current) return;

@@ -20,11 +20,11 @@ type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
 type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailable";
 
-const STRIP_POSE_CACHE_VERSION = 4;
-const STRIP_POSE_INTERVAL_SECONDS = 2;
+const STRIP_POSE_CACHE_VERSION = 5;
+const TARGET_STRIP_FRAME_COUNT = 25;
 
 function stripPoseCacheKey(videoId: string) {
-  return `stripPoses:v${STRIP_POSE_CACHE_VERSION}:${videoId}:i${STRIP_POSE_INTERVAL_SECONDS}`;
+  return `stripPoses:v${STRIP_POSE_CACHE_VERSION}:${videoId}:n${TARGET_STRIP_FRAME_COUNT}`;
 }
 
 function readStripPoseCache(videoId: string): StripPoseTimeline | null {
@@ -61,6 +61,9 @@ export default function Home() {
   const [segmentationStatus, setSegmentationStatus] = useState<SegmentationStatus>("idle");
   const [segmentationProgress, setSegmentationProgress] = useState(0);
   const [segmentedVideoUrl, setSegmentedVideoUrl] = useState<string | null>(null);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [isVideoPaused, setIsVideoPaused] = useState(false);
+  const [referenceVideoAspectRatio, setReferenceVideoAspectRatio] = useState(16/9);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const livePoseRef = useRef<NormalizedLandmark[] | null>(null);
@@ -188,7 +191,7 @@ export default function Home() {
     extractStripPoses(
       `/api/video/${videoId}`,
       (pct) => setExtractionProgress(pct),
-      STRIP_POSE_INTERVAL_SECONDS
+      TARGET_STRIP_FRAME_COUNT
     )
       .then((timeline) => {
         setPoseTimeline(timeline);
@@ -253,14 +256,18 @@ export default function Home() {
     segmentationStatus === "error" ||
     segmentationStatus === "unavailable";
 
-  // Poll video currentTime via rAF loop (video only mounts when ready)
+  // Poll video currentTime, paused state, and aspect ratio via rAF loop (video only mounts when ready)
   useEffect(() => {
     if (extractionStatus !== "done" || !poseTimeline || !segmentationReady) return;
 
     let raf: number;
     const tick = () => {
       const t = youtubePanelRef.current?.getCurrentTime() ?? 0;
+      const paused = youtubePanelRef.current?.isPaused() ?? false;
+      const aspectRatio = youtubePanelRef.current?.getVideoAspectRatio() ?? 16/9;
       setCurrentVideoTime(t);
+      setIsVideoPaused(paused);
+      setReferenceVideoAspectRatio(aspectRatio);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -343,7 +350,7 @@ export default function Home() {
       {/* Main Split Screen */}
       <main className="flex-1 flex gap-3 p-3 min-h-0 relative z-10">
         {/* Left — Reference Video */}
-        <div className="flex-1 min-w-0 min-h-0">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
           <YoutubePanel
             ref={youtubePanelRef}
             videoId={videoId}
@@ -355,6 +362,40 @@ export default function Home() {
             segmentationStatus={segmentationStatus}
             segmentationProgress={segmentationProgress}
           />
+
+          {/* Playback Speed Slider */}
+          {downloadStatus === "done" && (
+            <div className="flex items-center gap-3 px-3 py-2 bg-black/30 border border-neon-cyan/10 rounded">
+              <label
+                className="text-[10px] tracking-[0.2em] uppercase text-neon-cyan/50"
+                style={{ fontFamily: "var(--font-audiowide)" }}
+              >
+                Speed
+              </label>
+              <input
+                type="range"
+                min="0.25"
+                max="2"
+                step="0.25"
+                value={playbackRate}
+                onChange={(e) => {
+                  const rate = parseFloat(e.target.value);
+                  setPlaybackRate(rate);
+                  youtubePanelRef.current?.setPlaybackRate(rate);
+                }}
+                className="flex-1 h-1 bg-black/50 rounded appearance-none cursor-pointer"
+                style={{
+                  accentColor: "#00ffff",
+                }}
+              />
+              <span
+                className="text-[11px] text-neon-cyan/70 font-mono min-w-[40px] text-right"
+                style={{ fontFamily: "var(--font-audiowide)" }}
+              >
+                {playbackRate.toFixed(2)}x
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Right — Live Camera with score-reactive glow */}
@@ -363,6 +404,9 @@ export default function Home() {
             onPose={handlePose}
             segmentedVideoUrl={segmentedVideoUrl}
             referenceVideoTime={currentVideoTime}
+            playbackRate={playbackRate}
+            isReferencePaused={isVideoPaused}
+            referenceVideoAspectRatio={referenceVideoAspectRatio}
           />
         </div>
       </main>
@@ -375,6 +419,7 @@ export default function Home() {
             currentTime={currentVideoTime}
             livePoseRef={livePoseRef}
             onSeek={(time: number) => youtubePanelRef.current?.seekTo(time)}
+            playbackRate={playbackRate}
           />
         </div>
       )}

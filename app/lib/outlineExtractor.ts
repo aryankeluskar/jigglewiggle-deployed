@@ -1,8 +1,7 @@
 /**
- * Extracts a green outline from a mask video frame.
+ * Extracts an "oreo" outline from a mask video frame.
  * The mask video has white foreground (person) on black background.
- * This finds edge pixels where foreground meets background and returns
- * green (#00ff00) outline ImageData.
+ * This creates a 3-layer border: black (outer), white (middle), black (inner).
  */
 export function extractOutline(
   maskVideo: HTMLVideoElement,
@@ -27,29 +26,53 @@ export function extractOutline(
       outline[i + 3] = 0;
     }
 
-    // Find edge pixels: foreground pixels with at least one background neighbor
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        const idx = (y * width + x) * 4;
+    // Helper to check if pixel is foreground (white in mask)
+    const isForeground = (x: number, y: number) => {
+      if (x < 0 || x >= width || y < 0 || y >= height) return false;
+      return data[(y * width + x) * 4] > 128;
+    };
 
-        if (data[idx] > 128) {
-          let hasBackgroundNeighbor = false;
-
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              if (dx === 0 && dy === 0) continue;
-              const nIdx = ((y + dy) * width + (x + dx)) * 4;
-              if (data[nIdx] < 128) {
-                hasBackgroundNeighbor = true;
-                break;
+    // Helper to get distance to nearest background pixel
+    const distanceToBackground = (x: number, y: number, maxDist: number) => {
+      for (let dist = 1; dist <= maxDist; dist++) {
+        for (let dy = -dist; dy <= dist; dy++) {
+          for (let dx = -dist; dx <= dist; dx++) {
+            if (Math.abs(dx) === dist || Math.abs(dy) === dist) {
+              if (!isForeground(x + dx, y + dy)) {
+                return dist;
               }
             }
-            if (hasBackgroundNeighbor) break;
           }
+        }
+      }
+      return maxDist + 1;
+    };
 
-          if (hasBackgroundNeighbor) {
+    // Create thick oreo border: black (2px), white (4px), black (2px) = 8px total
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (isForeground(x, y)) {
+          const dist = distanceToBackground(x, y, 8);
+          const idx = (y * width + x) * 4;
+
+          // Inner black (1-2px from edge)
+          if (dist >= 1 && dist <= 2) {
             outline[idx] = 0;       // R
+            outline[idx + 1] = 0;   // G
+            outline[idx + 2] = 0;   // B
+            outline[idx + 3] = 255; // A
+          }
+          // Middle white (3-6px from edge)
+          else if (dist >= 3 && dist <= 6) {
+            outline[idx] = 255;     // R
             outline[idx + 1] = 255; // G
+            outline[idx + 2] = 255; // B
+            outline[idx + 3] = 255; // A
+          }
+          // Outer black (7-8px from edge)
+          else if (dist >= 7 && dist <= 8) {
+            outline[idx] = 0;       // R
+            outline[idx + 1] = 0;   // G
             outline[idx + 2] = 0;   // B
             outline[idx + 3] = 255; // A
           }

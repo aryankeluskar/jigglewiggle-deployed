@@ -115,18 +115,138 @@ export async function extractPoses(
 }
 
 /**
- * Extracts poses at a coarse interval (default 2s) for the MoveQueue strip.
- * Much faster + smaller than extracting the full ~10fps timeline.
+ * Calculate an "interest score" for a pose frame based on movement energy,
+ * pose extremity, and distinctiveness from neighbors.
+ */
+function calculateInterestScore(
+  frame: StripPoseFrame,
+  prevFrame: StripPoseFrame | null,
+  nextFrame: StripPoseFrame | null
+): number {
+  if (!frame.landmarks || frame.landmarks.length === 0) return 0;
+
+  let score = 0;
+  const landmarks = frame.landmarks;
+
+  // 1. Motion energy: displacement from previous frame
+  if (prevFrame && prevFrame.landmarks.length > 0) {
+    let totalDisp = 0;
+    const count = Math.min(landmarks.length, prevFrame.landmarks.length);
+    for (let i = 0; i < count; i++) {
+      const dx = landmarks[i].x - prevFrame.landmarks[i].x;
+      const dy = landmarks[i].y - prevFrame.landmarks[i].y;
+      totalDisp += Math.sqrt(dx * dx + dy * dy);
+    }
+    const avgDisp = totalDisp / count;
+    score += avgDisp * 100; // Weight motion heavily
+  }
+
+  // 2. Pose extremity: how far from neutral positions
+  const leftWrist = landmarks[15];
+  const rightWrist = landmarks[16];
+  const leftShoulder = landmarks[11];
+  const rightShoulder = landmarks[12];
+  const leftHip = landmarks[23];
+  const rightHip = landmarks[24];
+  const leftKnee = landmarks[25];
+  const rightKnee = landmarks[26];
+
+  if (leftWrist && rightWrist && leftShoulder && rightShoulder) {
+    // High or very low arms are interesting
+    const avgWristY = (leftWrist.y + rightWrist.y) / 2;
+    const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+    const armHeight = Math.abs(avgWristY - avgShoulderY);
+    score += armHeight * 20;
+
+    // Wide arm spread is interesting
+    const armSpread = Math.abs(leftWrist.x - rightWrist.x);
+    score += armSpread * 15;
+  }
+
+  if (leftHip && rightHip && leftKnee && rightKnee) {
+    // Deep knee bends are interesting
+    const avgKneeY = (leftKnee.y + rightKnee.y) / 2;
+    const avgHipY = (leftHip.y + rightHip.y) / 2;
+    const kneeBend = Math.abs(avgKneeY - avgHipY);
+    score += kneeBend * 25;
+  }
+
+  // 3. Local peak: higher interest than neighbors
+  if (prevFrame && nextFrame) {
+    const prevScore = prevFrame.landmarks.length > 0 ? 1 : 0;
+    const nextScore = nextFrame.landmarks.length > 0 ? 1 : 0;
+    if (prevScore > 0 && nextScore > 0) {
+      score += 5; // Bonus for being between valid frames (local maxima candidate)
+    }
+  }
+
+  return score;
+}
+
+/**
+ * Select the most interesting frames from a dense timeline.
+ * Uses greedy selection with temporal spacing constraints.
+ */
+function selectInterestingFrames(
+  denseTL: StripPoseTimeline,
+  targetCount: number
+): StripPoseTimeline {
+  if (denseTL.length <= targetCount) return denseTL;
+
+  // Score all frames
+  type ScoredFrame = StripPoseFrame & { score: number; index: number };
+  const scored: ScoredFrame[] = denseTL.map((frame, i) => {
+    const prev = i > 0 ? denseTL[i - 1] : null;
+    const next = i < denseTL.length - 1 ? denseTL[i + 1] : null;
+    return {
+      ...frame,
+      score: calculateInterestScore(frame, prev, next),
+      index: i,
+    };
+  });
+
+  // Sort by score descending
+  scored.sort((a, b) => b.score - a.score);
+
+  // Greedy selection with minimum time spacing
+  const selected: ScoredFrame[] = [];
+  const minSpacing = (denseTL[denseTL.length - 1].time - denseTL[0].time) / (targetCount * 1.5);
+
+  for (const candidate of scored) {
+    if (selected.length >= targetCount) break;
+
+    // Check if too close to any already-selected frame
+    const tooClose = selected.some(
+      (s) => Math.abs(s.time - candidate.time) < minSpacing
+    );
+
+    if (!tooClose) {
+      selected.push(candidate);
+    }
+  }
+
+  // Sort selected frames by time
+  selected.sort((a, b) => a.time - b.time);
+
+  // Remove temporary scoring fields
+  return selected.map(({ score: _score, index: _index, ...frame }) => frame);
+}
+
+/**
+ * Extracts interesting poses for the MoveQueue strip using smart frame selection.
+ * Samples densely, then selects the most dynamic/interesting frames.
  */
 export async function extractStripPoses(
   videoSrc: string,
   onProgress: (percent: number) => void,
-  intervalSeconds = 2
+  targetFrameCount = 20 // Approximate number of frames to display
 ): Promise<StripPoseTimeline> {
   const { video, canvas, ctx, pose, duration, cleanup } =
     await prepareExtractionElements(videoSrc);
 
-  const timeline: StripPoseTimeline = [];
+  // Sample at 0.5s intervals for better coverage
+  const samplingInterval = 0.5;
+  const denseTL: StripPoseTimeline = [];
 
   let resolveFrame: ((landmarks: NormalizedLandmark[]) => void) | null = null;
   pose.onResults((results: PoseResults) => {
@@ -135,8 +255,8 @@ export async function extractStripPoses(
     resolveFrame = null;
   });
 
-  const step = Math.max(0.25, intervalSeconds);
-  for (let t = 0; t < duration; t += step) {
+  // Extract dense timeline
+  for (let t = 0; t < duration; t += samplingInterval) {
     video.currentTime = t;
     await new Promise<void>((resolve) => {
       video.onseeked = () => resolve();
@@ -150,15 +270,19 @@ export async function extractStripPoses(
       pose.send({ image: canvas });
     });
 
-    timeline.push({ time: t, landmarks, thumbnail });
-    onProgress((t / duration) * 100);
+    denseTL.push({ time: t, landmarks, thumbnail });
+    onProgress((t / duration) * 80); // Reserve 20% for selection
   }
 
-  const densifiedTimeline = fillMissingStripLandmarks(timeline);
+  // Select most interesting frames
+  const selectedTL = selectInterestingFrames(denseTL, targetFrameCount);
+
+  // Fill missing landmarks
+  const finalTL = fillMissingStripLandmarks(selectedTL);
 
   onProgress(100);
   cleanup();
-  return densifiedTimeline;
+  return finalTL;
 }
 
 function fillMissingStripLandmarks(timeline: StripPoseTimeline): StripPoseTimeline {
