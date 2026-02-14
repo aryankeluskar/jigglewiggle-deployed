@@ -1049,3 +1049,214 @@ html, body {
   65% { opacity: 1; }
   100% { opacity: 0; letter-spacing: 0.8em; }
 }
+
+/* ══════════════════════════════════════════════
+   REPORT CARD — Spotify Wrapped Style
+   ══════════════════════════════════════════════ */
+
+.report-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(20, 10, 40, 0.95) 0%, rgba(5, 5, 8, 0.98) 70%),
+    #050508;
+}
+
+/* Subtle scanlines on report overlay */
+.report-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 255, 255, 0.01) 3px,
+    rgba(0, 255, 255, 0.01) 6px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── Ring burst ── */
+
+.report-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 3px solid;
+  transform: translate(-50%, -50%) scale(0);
+  animation: report-ring-expand 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+}
+
+.report-ring-delay {
+  animation-delay: 0.15s;
+}
+
+/* ── Streaks ── */
+
+.report-streak {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  width: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.report-streak-left {
+  right: 50%;
+  animation: report-streak-left 1s 0.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.report-streak-right {
+  left: 50%;
+  animation: report-streak-right 1s 0.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Diagonal flashes ── */
+
+.report-diag {
+  position: absolute;
+  width: 200%;
+  height: 2px;
+  top: 50%;
+  left: -50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.report-diag-1 {
+  transform: rotate(25deg);
+  animation: report-diag-flash 1.2s 0.2s ease-out forwards;
+}
+
+.report-diag-2 {
+  transform: rotate(-25deg);
+  animation: report-diag-flash 1.2s 0.3s ease-out forwards;
+}
+
+/* ── Grade slam ── */
+
+.report-grade-slam {
+  animation: report-grade-slam 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Subtitle pop ── */
+
+.report-subtitle-pop {
+  opacity: 0;
+  animation: report-subtitle-pop 0.8s 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Bar fill ── */
+
+.report-bar-fill {
+  width: 0;
+  animation: report-bar-fill 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Stat card ── */
+
+.report-stat-card {
+  background: rgba(10, 10, 30, 0.8);
+  border: 1px solid rgba(0, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 16px 18px;
+  position: relative;
+}
+
+/* HUD corners on stat cards */
+.report-stat-card::before,
+.report-stat-card::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: rgba(0, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+.report-stat-card::before {
+  top: 0; left: 0;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.report-stat-card::after {
+  bottom: 0; right: 0;
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+}
+
+/* ── Stat pop animation ── */
+
+.report-stat-pop {
+  opacity: 0;
+  animation: report-stat-pop 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ═══ REPORT CARD KEYFRAMES ═══ */
+
+@keyframes report-grade-slam {
+  0% { opacity: 0; transform: scale(3) translateY(10px); filter: blur(20px); }
+  40% { opacity: 1; transform: scale(0.9) translateY(-2px); filter: blur(0); }
+  60% { transform: scale(1.05) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes report-subtitle-pop {
+  0% { opacity: 0; transform: translateY(25px) scale(0.8); filter: blur(8px); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes report-ring-expand {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+  70% { opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) scale(25); opacity: 0; }
+}
+
+@keyframes report-streak-left {
+  0% { width: 0; opacity: 1; }
+  60% { width: 55%; opacity: 0.8; }
+  100% { width: 55%; opacity: 0; }
+}
+
+@keyframes report-streak-right {
+  0% { width: 0; opacity: 1; }
+  60% { width: 55%; opacity: 0.8; }
+  100% { width: 55%; opacity: 0; }
+}
+
+@keyframes report-diag-flash {
+  0% { opacity: 0; }
+  20% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+@keyframes report-bar-fill {
+  0% { width: 0; opacity: 0; }
+  20% { opacity: 1; }
+  80% { width: calc(var(--bar-target, 50%) * 1.05); }
+  100% { width: var(--bar-target, 50%); opacity: 1; }
+}
+
+@keyframes report-stat-pop {
+  0% { opacity: 0; transform: translateY(30px); filter: blur(4px); }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes report-pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(57, 255, 20, 0.6), 0 0 20px rgba(57, 255, 20, 0.3); }
+  50% { box-shadow: 0 0 15px rgba(57, 255, 20, 0.8), 0 0 35px rgba(57, 255, 20, 0.5), 0 0 60px rgba(57, 255, 20, 0.2); }
+}
