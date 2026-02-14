@@ -19,18 +19,33 @@
 }
 
 @theme inline {
-  --color-background: #050508;
+  --color-background: var(--arena-bg);
   --color-foreground: #e0e0ff;
-  --color-neon-magenta: #ff00aa;
-  --color-neon-cyan: #00ffff;
-  --color-neon-violet: #b829ff;
-  --color-neon-green: #39ff14;
-  --color-neon-yellow: #ffe100;
-  --color-neon-red: #ff003c;
-  --color-neon-pink: #ff2d95;
-  --color-panel: rgba(8, 8, 20, 0.8);
+  --color-neon-magenta: var(--neon-magenta);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-violet: var(--neon-violet);
+  --color-neon-green: var(--neon-green);
+  --color-neon-yellow: var(--neon-yellow);
+  --color-neon-red: var(--neon-red);
+  --color-neon-pink: var(--neon-pink);
+  --color-panel: var(--panel-bg);
   --font-display: var(--font-audiowide);
   --font-body: var(--font-chakra-petch);
+}
+
+/* ═══ GYM MODE — Variable Overrides ═══ */
+
+[data-mode="gym"] {
+  --arena-bg: #08050a;
+  --neon-magenta: #ff6b2b;
+  --neon-cyan: #a0d4ff;
+  --neon-violet: #ff8c42;
+  --neon-green: #4ade80;
+  --neon-yellow: #ffb347;
+  --neon-red: #ff4444;
+  --neon-pink: #ff8c42;
+  --panel-bg: rgba(15, 8, 5, 0.8);
+  --panel-border: rgba(160, 212, 255, 0.12);
 }
 
 body {
@@ -598,3 +613,177 @@ html, body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(0, 255, 255, 0.2); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 255, 0.4); }
+
+/* ══════════════════════════════════════════════
+   GYM MODE — Theme Overrides
+   WARM. FOCUSED. POWERFUL.
+   ══════════════════════════════════════════════ */
+
+.gym-arena {
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(255, 107, 43, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 110%, rgba(255, 140, 66, 0.15) 0%, transparent 40%),
+    radial-gradient(ellipse at 15% 110%, rgba(160, 212, 255, 0.1) 0%, transparent 40%),
+    #08050a;
+  position: relative;
+}
+
+.gym-arena::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(160, 212, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(160, 212, 255, 0.04) 1px, transparent 1px);
+  background-size: 50px 50px;
+  mask-image: linear-gradient(to bottom, transparent 5%, black 25%, black 75%, transparent 95%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.gym-arena::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.02) 2px,
+    rgba(0, 0, 0, 0.02) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Gym orbs — warm tones */
+[data-mode="gym"] .orb-1 {
+  background: radial-gradient(circle, rgba(255, 107, 43, 0.3), transparent 70%);
+}
+
+[data-mode="gym"] .orb-2 {
+  background: radial-gradient(circle, rgba(255, 140, 66, 0.25), transparent 70%);
+}
+
+[data-mode="gym"] .orb-3 {
+  background: radial-gradient(circle, rgba(160, 212, 255, 0.2), transparent 70%);
+}
+
+/* Gym neon divider */
+[data-mode="gym"] .neon-divider {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(160, 212, 255, 0.4) 15%,
+    rgba(255, 107, 43, 0.6) 50%,
+    rgba(255, 140, 66, 0.4) 85%,
+    transparent 100%
+  );
+  box-shadow: 0 0 8px rgba(255, 107, 43, 0.3), 0 1px 15px rgba(255, 107, 43, 0.15);
+}
+
+/* Gym neon title */
+[data-mode="gym"] .neon-title {
+  color: var(--neon-magenta);
+  text-shadow:
+    0 0 7px rgba(255, 107, 43, 1),
+    0 0 20px rgba(255, 107, 43, 0.8),
+    0 0 40px rgba(255, 107, 43, 0.5),
+    0 0 80px rgba(255, 107, 43, 0.3),
+    0 0 120px rgba(255, 107, 43, 0.15);
+}
+
+/* Gym neon text */
+[data-mode="gym"] .neon-text-cyan {
+  color: var(--neon-cyan);
+  text-shadow:
+    0 0 7px rgba(160, 212, 255, 0.9),
+    0 0 20px rgba(160, 212, 255, 0.5),
+    0 0 40px rgba(160, 212, 255, 0.25);
+}
+
+/* Gym input fields */
+[data-mode="gym"] .neon-input {
+  border-color: rgba(255, 107, 43, 0.2);
+  color: rgba(160, 212, 255, 0.9);
+  caret-color: #a0d4ff;
+}
+
+[data-mode="gym"] .neon-input::placeholder {
+  color: rgba(160, 212, 255, 0.2);
+}
+
+[data-mode="gym"] .neon-input:focus {
+  border-color: rgba(255, 107, 43, 0.6);
+  box-shadow: 0 0 15px rgba(255, 107, 43, 0.15), 0 0 30px rgba(255, 107, 43, 0.05), inset 0 0 10px rgba(255, 107, 43, 0.03);
+}
+
+/* Gym button */
+[data-mode="gym"] .neon-btn {
+  background: linear-gradient(135deg, rgba(255, 107, 43, 0.2), rgba(255, 140, 66, 0.2));
+  border-color: rgba(255, 107, 43, 0.5);
+  color: var(--neon-magenta);
+  text-shadow: 0 0 10px rgba(255, 107, 43, 0.6);
+  box-shadow: 0 0 10px rgba(255, 107, 43, 0.15), 0 0 25px rgba(255, 107, 43, 0.05);
+}
+
+[data-mode="gym"] .neon-btn:hover {
+  background: linear-gradient(135deg, rgba(255, 107, 43, 0.3), rgba(255, 140, 66, 0.3));
+  box-shadow: 0 0 20px rgba(255, 107, 43, 0.35), 0 0 50px rgba(255, 107, 43, 0.15);
+  border-color: rgba(255, 107, 43, 0.7);
+}
+
+/* Gym neon progress bar */
+[data-mode="gym"] .neon-progress {
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta), var(--neon-violet), var(--neon-cyan));
+  box-shadow: 0 0 12px rgba(255, 107, 43, 0.5), 0 0 25px rgba(255, 107, 43, 0.2);
+}
+
+/* Gym score auras — warm tones */
+[data-mode="gym"] .score-aura-idle {
+  box-shadow: inset 0 0 60px rgba(160, 212, 255, 0.03);
+}
+
+[data-mode="gym"] .score-aura-low {
+  box-shadow: inset 0 0 80px rgba(255, 68, 68, 0.08);
+}
+
+[data-mode="gym"] .score-aura-mid {
+  box-shadow:
+    inset 0 0 80px rgba(255, 179, 71, 0.1),
+    inset 0 0 150px rgba(255, 179, 71, 0.04);
+}
+
+[data-mode="gym"] .score-aura-high {
+  box-shadow:
+    inset 0 0 80px rgba(74, 222, 128, 0.12),
+    inset 0 0 160px rgba(74, 222, 128, 0.06),
+    inset 0 0 300px rgba(74, 222, 128, 0.03);
+}
+
+[data-mode="gym"] .score-aura-perfect {
+  box-shadow:
+    inset 0 0 100px rgba(74, 222, 128, 0.2),
+    inset 0 0 200px rgba(74, 222, 128, 0.1),
+    inset 0 0 400px rgba(74, 222, 128, 0.05);
+}
+
+/* Gym scrollbar */
+[data-mode="gym"] ::-webkit-scrollbar-thumb { background: rgba(255, 107, 43, 0.2); }
+[data-mode="gym"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 107, 43, 0.4); }
+
+/* Gym HUD corners */
+[data-mode="gym"] .border-neon-cyan\/30 {
+  border-color: rgba(160, 212, 255, 0.3);
+}
+
+[data-mode="gym"] .border-neon-cyan\/15 {
+  border-color: rgba(160, 212, 255, 0.15);
+}
+
+[data-mode="gym"] .border-neon-cyan\/20 {
+  border-color: rgba(160, 212, 255, 0.2);
+}
+
+[data-mode="gym"] .border-neon-cyan\/10 {
+  border-color: rgba(160, 212, 255, 0.1);
+}

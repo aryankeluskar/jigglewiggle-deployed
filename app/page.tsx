@@ -11,7 +11,9 @@ import { extractVideoId } from "./lib/youtube";
 import { extractStripPoses } from "./lib/videoPoseExtractor";
 import type { StripPoseTimeline } from "./lib/videoPoseExtractor";
 import { computeScore, buildPoseSummary } from "./lib/scoring";
+import { computeGymScore, buildGymPoseSummary, resetGymScoring } from "./lib/gymScoring";
 import { getCoachMessage } from "./lib/coach";
+import type { AppMode } from "./shared/mode";
 import { findClosestFrame, comparePosesDetailed } from "./lib/poseComparison";
 import type { DetailedComparison } from "./lib/poseComparison";
 import { speak } from "./lib/speech";
@@ -110,6 +112,7 @@ export default function Home() {
   const [replayActive, setReplayActive] = useState(false);
   const [replayPaused, setReplayPaused] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
+  const [mode, setMode] = useState<AppMode>("dance");
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -162,6 +165,8 @@ export default function Home() {
       setGroqFeedback("");
       resetGroqScoring();
       resetGestureState();
+      setMode("dance");
+      resetGymScoring();
     }
 
     setVideoId(id);
@@ -204,6 +209,8 @@ export default function Home() {
               setDownloadProgress(event.percent);
             } else if (event.type === "done") {
               setDownloadStatus("done");
+            } else if (event.type === "classified") {
+              setMode(event.mode === "gym" ? "gym" : "dance");
             } else if (event.type === "error") {
               setDownloadStatus("error");
               setDownloadError(event.message);
@@ -388,8 +395,8 @@ export default function Home() {
       }
     }
 
-    // 1. Heuristic score (always computed — feeds body metrics for coach summary)
-    const frame = computeScore(landmarks);
+    // 1. Heuristic score (mode-aware — feeds body metrics for coach summary)
+    const frame = mode === "gym" ? computeGymScore(landmarks) : computeScore(landmarks);
     const issues = [...frame.issues];
 
     // 2. Geometric reference comparison (every frame, when timeline available)
@@ -432,18 +439,17 @@ export default function Home() {
       setScore(rounded);
     }
 
-    // 5. Build summary for LLM coach
-    const summary = buildPoseSummary(landmarks, {
-      ...frame,
-      score: Math.round(smoothed),
-      issues,
-    });
+    // 5. Build summary for LLM coach (mode-aware)
+    const blendedFrame = { ...frame, score: Math.round(smoothed), issues };
+    const summary = mode === "gym"
+      ? buildGymPoseSummary(landmarks, blendedFrame)
+      : buildPoseSummary(landmarks, blendedFrame);
     if (detailed) {
       summary.reference = detailed;
     }
 
     if (!replayModeRef.current) {
-      getCoachMessage(summary).then((result) => {
+      getCoachMessage(summary, mode).then((result) => {
         if (result) {
           setCoachMsg(result.message);
           if (result.audio) speak(result.audio);
@@ -482,6 +488,7 @@ export default function Home() {
     smoothedScoreRef.current = 0;
     setScore(0);
     resetScoring();
+    resetGymScoring();
     resetCoach();
     resetGestureState();
     groqAnchorRef.current = null;
@@ -534,7 +541,8 @@ export default function Home() {
 
   return (
     <div
-      className="h-screen overflow-hidden arena text-white flex flex-col"
+      data-mode={mode}
+      className={`h-screen overflow-hidden ${mode === "gym" ? "gym-arena" : "arena"} text-white flex flex-col`}
       style={{ fontFamily: "var(--font-chakra-petch, system-ui)" }}
     >
       {/* Floating ambient light orbs */}
@@ -557,14 +565,14 @@ export default function Home() {
             className="text-xl tracking-[0.2em] uppercase neon-title animate-flicker"
             style={{ fontFamily: "var(--font-audiowide)" }}
           >
-            Jiggle Wiggle
+            {mode === "gym" ? "Iron Form" : "Jiggle Wiggle"}
           </h1>
           <div className="h-5 w-px bg-neon-cyan/20" />
           <span
             className="text-[9px] tracking-[0.35em] uppercase neon-text-cyan opacity-40"
             style={{ fontFamily: "var(--font-audiowide)" }}
           >
-            Dance Arena
+            {mode === "gym" ? "Gym Arena" : "Dance Arena"}
           </span>
         </div>
 
@@ -665,7 +673,7 @@ export default function Home() {
 
       {/* Coach Panel */}
       <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
-        <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} />
+        <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} mode={mode} />
       </footer>
 
       {/* Record / Replay toolbar */}

@@ -8,6 +8,7 @@
  */
 
 import type { PoseSummary } from "./scoring";
+import type { AppMode } from "./mode";
 import { isSpeechPlaying } from "./speech";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -30,7 +31,8 @@ function getAdaptiveInterval(): number {
 }
 
 export async function getCoachMessage(
-  summary: PoseSummary
+  summary: PoseSummary,
+  mode: AppMode = "dance"
 ): Promise<CoachResult | null> {
   const now = Date.now();
 
@@ -53,6 +55,7 @@ export async function getCoachMessage(
       body: JSON.stringify({
         summary,
         history: conversationHistory.slice(-MAX_HISTORY),
+        mode,
       }),
     });
 

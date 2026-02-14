@@ -2,11 +2,13 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { isMuted, setMuted } from "../shared/speech";
+import type { AppMode } from "../shared/mode";
 
 type Props = {
   score: number;
   message: string;
   showScore?: boolean;
+  mode?: AppMode;
 };
 
 // Compute a single RGB color that smoothly maps to score tier
@@ -24,7 +26,7 @@ function scoreToLabel(score: number): string {
   return "";
 }
 
-export default function CoachPanel({ score, message, showScore }: Props) {
+export default function CoachPanel({ score, message, showScore, mode = "dance" }: Props) {
   const [muted, _setMuted] = useState(isMuted());
   const toggleMute = () => {
     const next = !muted;
@@ -148,13 +150,15 @@ export default function CoachPanel({ score, message, showScore }: Props) {
           className="text-[11px] tracking-[0.25em] uppercase text-neon-violet/70 mb-1"
           style={{ fontFamily: "var(--font-audiowide)" }}
         >
-          AI Coach
+          {mode === "gym" ? "Form Coach" : "AI Coach"}
         </p>
         <p
           className="text-white/90 text-base font-medium truncate"
           style={{ fontFamily: "var(--font-chakra-petch)" }}
         >
-          {message || "Step into the arena. Show me what you\u2019ve got."}
+          {message || (mode === "gym"
+            ? "Ready to check your form. Let\u2019s work."
+            : "Step into the arena. Show me what you\u2019ve got.")}
         </p>
       </div>
 
