@@ -5,20 +5,13 @@ import path from "path";
 export const maxDuration = 600; // 10 minutes
 
 const VIDEO_DIR = "/tmp/jigglewiggle";
-const MODAL_ENDPOINT_URL = process.env.MODAL_ENDPOINT_URL;
+const MODAL_ENDPOINT_URL = "https://aryankeluskar--jigglewiggle-sam2-sam2model-segment.modal.run";
 
 function maskPath(videoId: string) {
   return path.join(VIDEO_DIR, `${videoId}_mask.mp4`);
 }
 
 export async function POST(request: NextRequest) {
-  if (!MODAL_ENDPOINT_URL) {
-    return Response.json(
-      { error: "MODAL_ENDPOINT_URL not configured" },
-      { status: 503 }
-    );
-  }
-
   const { videoId } = (await request.json()) as { videoId: string };
 
   if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
@@ -103,6 +96,5 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  const configured = !!MODAL_ENDPOINT_URL;
-  return Response.json({ configured });
+  return Response.json({ configured: true });
 }
