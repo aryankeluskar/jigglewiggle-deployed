@@ -172,6 +172,9 @@ export function findClosestFrame(
 
 /**
  * Detailed pose comparison returning per-limb scores and worst limb.
+ * Reference-centric: only compares landmarks visible in the reference pose.
+ * If a landmark exists in the user's pose but not in the reference, it's ignored.
+ * If a landmark exists in the reference but not in the user's pose, it counts as a penalty.
  *
  * @param refAspectRatio  width/height of the reference video (e.g. Zoom 16:9 → 1.78)
  * @param liveAspectRatio width/height of the live webcam (e.g. 4:3 → 1.33)
@@ -189,13 +192,28 @@ export function comparePosesDetailed(
 
   for (const [limb, joints] of Object.entries(LIMB_JOINTS)) {
     const distances: number[] = [];
+    let missingCount = 0;
+
     for (const idx of joints) {
       const r = refNorm[idx];
       const l = liveNorm[idx];
-      if (!r || !l) continue;
-      if ((r.visibility ?? 0) < 0.3 || (l.visibility ?? 0) < 0.3) continue;
-      distances.push(dist(r, l));
+
+      // Skip if reference landmark doesn't exist or has low visibility
+      // (user's extra landmarks are ignored)
+      if (!r || (r.visibility ?? 0) < 0.3) continue;
+
+      // Reference landmark exists and is visible
+      // Check if user's landmark exists
+      if (!l || (l.visibility ?? 0) < 0.3) {
+        // User is missing a landmark that the reference has - penalize heavily
+        missingCount++;
+        distances.push(THRESH_OK * 2); // Maximum penalty distance
+      } else {
+        // Both landmarks exist - measure distance
+        distances.push(dist(r, l));
+      }
     }
+
     if (distances.length === 0) {
       limbScores[limb] = 50; // unknown — neutral score
     } else {
@@ -217,6 +235,7 @@ export function comparePosesDetailed(
 /**
  * Compare two normalized poses. Returns an overall score (0-100)
  * and a per-connection color map for drawSkeleton.
+ * Reference-centric: only compares landmarks visible in the reference pose.
  */
 export function comparePoses(
   ref: NormalizedLandmark[],
@@ -227,14 +246,23 @@ export function comparePoses(
     limbDistances[limb] = [];
   }
 
-  // Compute per-joint distances grouped by limb
+  // Compute per-joint distances grouped by limb (reference-centric)
   for (const limb of Object.keys(LIMB_JOINTS)) {
     for (const idx of LIMB_JOINTS[limb]) {
       const r = ref[idx];
       const l = live[idx];
-      if (!r || !l) continue;
-      if ((r.visibility ?? 0) < 0.3 || (l.visibility ?? 0) < 0.3) continue;
-      limbDistances[limb].push(dist(r, l));
+
+      // Skip if reference landmark doesn't exist or has low visibility
+      if (!r || (r.visibility ?? 0) < 0.3) continue;
+
+      // Reference landmark exists - check user's landmark
+      if (!l || (l.visibility ?? 0) < 0.3) {
+        // User is missing a landmark that reference has - maximum penalty
+        limbDistances[limb].push(THRESH_OK * 2);
+      } else {
+        // Both exist - measure distance
+        limbDistances[limb].push(dist(r, l));
+      }
     }
   }
 

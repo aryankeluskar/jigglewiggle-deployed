@@ -1,4 +1,41 @@
 /**
+ * Extracts a mask indicating foreground (person) pixels.
+ * Returns ImageData where alpha channel is 255 for foreground, 0 for background.
+ */
+export function extractMask(
+  maskVideo: HTMLVideoElement,
+  tempCanvas: HTMLCanvasElement
+): ImageData | null {
+  const ctx = tempCanvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.drawImage(maskVideo, 0, 0, tempCanvas.width, tempCanvas.height);
+
+  try {
+    const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+    const data = imageData.data;
+    const width = tempCanvas.width;
+    const height = tempCanvas.height;
+
+    const maskData = ctx.createImageData(width, height);
+    const mask = maskData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const isForeground = data[i] > 128; // White pixels are foreground
+      mask[i] = 0;       // R
+      mask[i + 1] = 0;   // G
+      mask[i + 2] = 0;   // B
+      mask[i + 3] = isForeground ? 0 : 51; // 20% opacity (51/255 ≈ 0.2) for background
+    }
+
+    return maskData;
+  } catch (err) {
+    console.error("Error extracting mask:", err);
+    return null;
+  }
+}
+
+/**
  * Extracts an "oreo" outline from a mask video frame.
  * The mask video has white foreground (person) on black background.
  * This creates a 3-layer border: black (outer), white (middle), black (inner).
@@ -48,29 +85,29 @@ export function extractOutline(
       return maxDist + 1;
     };
 
-    // Create thick oreo border: black (2px), white (4px), black (2px) = 8px total
+    // Create thinner oreo border: black (1px), white (3px), black (1px) = 5px total
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         if (isForeground(x, y)) {
-          const dist = distanceToBackground(x, y, 8);
+          const dist = distanceToBackground(x, y, 5);
           const idx = (y * width + x) * 4;
 
-          // Inner black (1-2px from edge)
-          if (dist >= 1 && dist <= 2) {
+          // Inner black (1px from edge)
+          if (dist === 1) {
             outline[idx] = 0;       // R
             outline[idx + 1] = 0;   // G
             outline[idx + 2] = 0;   // B
             outline[idx + 3] = 255; // A
           }
-          // Middle white (3-6px from edge)
-          else if (dist >= 3 && dist <= 6) {
+          // Middle white (2-4px from edge)
+          else if (dist >= 2 && dist <= 4) {
             outline[idx] = 255;     // R
             outline[idx + 1] = 255; // G
             outline[idx + 2] = 255; // B
             outline[idx + 3] = 255; // A
           }
-          // Outer black (7-8px from edge)
-          else if (dist >= 7 && dist <= 8) {
+          // Outer black (5px from edge)
+          else if (dist === 5) {
             outline[idx] = 0;       // R
             outline[idx + 1] = 0;   // G
             outline[idx + 2] = 0;   // B

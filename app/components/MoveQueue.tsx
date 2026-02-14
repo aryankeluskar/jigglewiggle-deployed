@@ -12,10 +12,11 @@ type Props = {
   livePoseRef: React.RefObject<NormalizedLandmark[] | null>;
   onSeek: (time: number) => void;
   playbackRate?: number;
+  referenceVideoAspectRatio?: number;
+  webcamAspectRatio?: number;
 };
 
-const CARD_W = 96;
-const CARD_H = 128;
+const CARD_BASE_H = 128;
 const VISIBLE_CARDS = 7;
 
 const REF_STYLE = {
@@ -28,7 +29,7 @@ const REF_STYLE = {
   clear: true,
 } as const;
 
-export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek, playbackRate = 1 }: Props) {
+export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek, playbackRate = 1, referenceVideoAspectRatio = 16/9, webcamAspectRatio = 4/3 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -36,6 +37,10 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek, 
   // Track best score achieved per card index (persists as user dances through)
   const cardScoresRef = useRef<Map<number, number>>(new Map());
   const [cardScores, setCardScores] = useState<Map<number, number>>(new Map());
+
+  // Calculate card dimensions based on video aspect ratio
+  const CARD_W = Math.round(CARD_BASE_H * referenceVideoAspectRatio);
+  const CARD_H = CARD_BASE_H;
 
   // Timeline is already sampled (e.g. every 2s) — just classify
   const samples = useMemo(() => {
@@ -65,7 +70,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek, 
         ctx.fillText("No pose", CARD_W / 2, CARD_H / 2);
       }
     }
-  }, [samples, timeline]);
+  }, [samples, timeline, CARD_W, CARD_H]);
 
   // Find current sample index
   const currentSampleIdx = useMemo(() => {
@@ -96,8 +101,8 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek, 
           const refLandmarks = timeline[sample.idx]?.landmarks ?? [];
 
           if (refLandmarks.length > 0 && live.length > 0) {
-            const normRef = normalizePose(refLandmarks);
-            const normLive = normalizePose(live);
+            const normRef = normalizePose(refLandmarks, referenceVideoAspectRatio);
+            const normLive = normalizePose(live, webcamAspectRatio);
             const comparison = comparePoses(normRef, normLive);
 
             drawSkeleton(ctx, normLive, CARD_W, CARD_H, {
@@ -134,7 +139,7 @@ export default function MoveQueue({ timeline, currentTime, livePoseRef, onSeek, 
 
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [currentSampleIdx, samples, timeline, livePoseRef]);
+  }, [currentSampleIdx, samples, timeline, livePoseRef, CARD_W, CARD_H, referenceVideoAspectRatio, webcamAspectRatio]);
 
   const handleCardClick = useCallback(
     (time: number) => {
