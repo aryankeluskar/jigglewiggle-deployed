@@ -111,6 +111,7 @@ export default function Home() {
   const [gestureToastSeq, setGestureToastSeq] = useState(0);
   const [gestureProgress, setGestureProgress] = useState(0);
   const [gesturePending, setGesturePending] = useState<GestureAction | null>(null);
+  const [gesturesEnabled, setGesturesEnabled] = useState(true);
   const [replayActive, setReplayActive] = useState(false);
   const [replayPaused, setReplayPaused] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
@@ -127,6 +128,7 @@ export default function Home() {
   const groqAnchorRef = useRef<number | null>(null);
   const replayModeRef = useRef(false);
   const replayVideoTimeRef = useRef<number | null>(null);
+  const gesturesEnabledRef = useRef(true);
   const loadedRecordingRef = useRef<PoseRecording | null>(null);
 
   // Score aura class
@@ -385,8 +387,8 @@ export default function Home() {
     // Recording hook
     if (isRecording()) recordFrame(landmarks!, currentVideoTime);
 
-    // Gesture detection (skip during replay to prevent spurious video seeks)
-    const gesture = replayModeRef.current
+    // Gesture detection (skip during replay or when disabled)
+    const gesture = (replayModeRef.current || !gesturesEnabledRef.current)
       ? { lastAction: null as GestureAction | null, pending: null as GestureAction | null, progress: 0 }
       : processGestureLandmarks(landmarks);
     setGestureProgress(gesture.progress);
@@ -694,7 +696,14 @@ export default function Home() {
                 referenceVideoAspectRatio={referenceVideoAspectRatio}
                 webcamCaptureRef={webcamCaptureRef}
               />
-              <GestureGuide />
+              <GestureGuide
+                enabled={gesturesEnabled}
+                onToggle={(v) => {
+                  setGesturesEnabled(v);
+                  gesturesEnabledRef.current = v;
+                  if (!v) resetGestureState();
+                }}
+              />
             </div>
           </main>
 
