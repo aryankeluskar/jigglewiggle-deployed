@@ -153,14 +153,14 @@ html, body {
   70% { transform: translate(-20px, 20px) scale(0.95); }
 }
 
-/* ═══ SCORE AURA — Full-screen reactive glow ═══ */
+/* ═══ SCORE AURA — Full-screen reactive glow (ENHANCED) ═══ */
 
 .score-aura {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 50;
-  transition: box-shadow 0.8s ease;
+  transition: box-shadow 0.5s ease, opacity 0.3s ease;
 }
 
 .score-aura-idle {
@@ -168,39 +168,68 @@ html, body {
 }
 
 .score-aura-low {
-  box-shadow: inset 0 0 80px rgba(255, 0, 60, 0.08);
+  box-shadow:
+    inset 0 0 100px rgba(255, 0, 60, 0.15),
+    inset 0 0 200px rgba(255, 0, 60, 0.08);
+  animation: aura-pulse-low 2s ease-in-out infinite;
 }
 
 .score-aura-mid {
   box-shadow:
-    inset 0 0 80px rgba(255, 225, 0, 0.1),
-    inset 0 0 150px rgba(255, 225, 0, 0.04);
+    inset 0 0 120px rgba(255, 225, 0, 0.18),
+    inset 0 0 200px rgba(255, 225, 0, 0.1),
+    inset 0 0 350px rgba(255, 170, 0, 0.06);
+  animation: aura-pulse-mid 1.8s ease-in-out infinite;
 }
 
 .score-aura-high {
   box-shadow:
-    inset 0 0 80px rgba(57, 255, 20, 0.12),
-    inset 0 0 160px rgba(57, 255, 20, 0.06),
-    inset 0 0 300px rgba(57, 255, 20, 0.03);
-  animation: aura-pulse-high 1.5s ease-in-out infinite;
+    inset 0 0 150px rgba(57, 255, 20, 0.22),
+    inset 0 0 250px rgba(57, 255, 20, 0.14),
+    inset 0 0 400px rgba(57, 255, 20, 0.08),
+    inset 0 0 600px rgba(0, 255, 170, 0.04);
+  animation: aura-pulse-high 1.2s ease-in-out infinite;
 }
 
 .score-aura-perfect {
   box-shadow:
-    inset 0 0 100px rgba(57, 255, 20, 0.2),
-    inset 0 0 200px rgba(57, 255, 20, 0.1),
-    inset 0 0 400px rgba(0, 255, 170, 0.05);
-  animation: aura-pulse-perfect 1s ease-in-out infinite;
+    inset 0 0 180px rgba(57, 255, 20, 0.35),
+    inset 0 0 300px rgba(57, 255, 20, 0.2),
+    inset 0 0 500px rgba(0, 255, 170, 0.12),
+    inset 0 0 800px rgba(0, 255, 255, 0.06);
+  animation: aura-pulse-perfect 0.8s ease-in-out infinite;
+}
+
+@keyframes aura-pulse-low {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes aura-pulse-mid {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
 }
 
 @keyframes aura-pulse-high {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.5;
+    filter: brightness(1.3);
+  }
 }
 
 @keyframes aura-pulse-perfect {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1) saturate(1);
+  }
+  50% {
+    opacity: 0.4;
+    filter: brightness(1.5) saturate(1.2);
+  }
 }
 
 /* ═══ CELEBRATION OVERLAY ═══ */
@@ -441,22 +470,40 @@ html, body {
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* Camera border reactive glow */
+/* Camera border reactive glow (ENHANCED) */
 @keyframes camera-glow-green {
   0%, 100% {
-    box-shadow: 0 0 10px rgba(57, 255, 20, 0.3), 0 0 30px rgba(57, 255, 20, 0.15), 0 0 60px rgba(57, 255, 20, 0.08);
+    box-shadow:
+      0 0 15px rgba(57, 255, 20, 0.5),
+      0 0 40px rgba(57, 255, 20, 0.3),
+      0 0 80px rgba(57, 255, 20, 0.15),
+      inset 0 0 20px rgba(57, 255, 20, 0.1);
   }
   50% {
-    box-shadow: 0 0 15px rgba(57, 255, 20, 0.5), 0 0 40px rgba(57, 255, 20, 0.25), 0 0 80px rgba(57, 255, 20, 0.12);
+    box-shadow:
+      0 0 25px rgba(57, 255, 20, 0.8),
+      0 0 60px rgba(57, 255, 20, 0.5),
+      0 0 120px rgba(57, 255, 20, 0.25),
+      0 0 200px rgba(0, 255, 170, 0.15),
+      inset 0 0 30px rgba(57, 255, 20, 0.2);
   }
 }
 
 @keyframes camera-glow-yellow {
   0%, 100% {
-    box-shadow: 0 0 8px rgba(255, 225, 0, 0.25), 0 0 20px rgba(255, 225, 0, 0.12);
+    box-shadow:
+      0 0 12px rgba(255, 225, 0, 0.4),
+      0 0 30px rgba(255, 225, 0, 0.2),
+      0 0 60px rgba(255, 225, 0, 0.1),
+      inset 0 0 15px rgba(255, 225, 0, 0.08);
   }
   50% {
-    box-shadow: 0 0 12px rgba(255, 225, 0, 0.4), 0 0 30px rgba(255, 225, 0, 0.2);
+    box-shadow:
+      0 0 18px rgba(255, 225, 0, 0.6),
+      0 0 45px rgba(255, 225, 0, 0.35),
+      0 0 90px rgba(255, 225, 0, 0.18),
+      0 0 150px rgba(255, 170, 0, 0.1),
+      inset 0 0 25px rgba(255, 225, 0, 0.15);
   }
 }
 

@@ -47,6 +47,7 @@ import RecordReplayPanel from "./components/RecordReplayPanel";
 import ModeOverlay from "./components/ModeOverlay";
 import ReportCard from "./components/report/ReportCard";
 import type { AIReport } from "./components/report/types";
+import SummaryReadyNotification from "./components/SummaryReadyNotification";
 import {
   resetSessionStats,
   recordScoreSample,
@@ -141,6 +142,7 @@ export default function Home() {
   const [scorePopup, setScorePopup] = useState<ScoreType | null>(null);
   const [videoTitle, setVideoTitle] = useState("");
   const [lastSubmittedUrl, setLastSubmittedUrl] = useState("");
+  const [summaryReady, setSummaryReady] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [reportData, setReportData] = useState<AIReport | null>(null);
   const [reportStats, setReportStats] = useState<SessionStats | null>(null);
@@ -208,6 +210,7 @@ export default function Home() {
       resetSessionStats();
       videoEndedRef.current = false;
       sessionStartRef.current = performance.now();
+      setSummaryReady(false);
       setShowReport(false);
       setReportData(null);
       setReportStats(null);
@@ -298,6 +301,7 @@ export default function Home() {
     lastScoredFrameIndexRef.current = -1;
     prevVideoTimeRef.current = 0;
     setScorePopup(null);
+    setSummaryReady(false);
     setClassificationStatus("idle");
 
     setDownloadStatus("downloading");
@@ -478,7 +482,8 @@ export default function Home() {
     const stats = getSessionStats(poseTimeline?.length ?? 0, elapsed);
     setReportStats(stats);
     setReportLoading(true);
-    setShowReport(true);
+    // Show notification instead of immediately showing report
+    setSummaryReady(true);
 
     fetch("/api/report", {
       method: "POST",
@@ -1027,6 +1032,18 @@ export default function Home() {
           />
         </>
       )}
+
+      {/* Summary Ready notification */}
+      <SummaryReadyNotification
+        visible={summaryReady && !showReport}
+        onView={() => {
+          setSummaryReady(false);
+          setShowReport(true);
+        }}
+        onDismiss={() => {
+          setSummaryReady(false);
+        }}
+      />
 
       {/* Report Card overlay */}
       {showReport && reportStats && (
