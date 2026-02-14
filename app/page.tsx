@@ -125,6 +125,8 @@ export default function Home() {
   const [classificationStatus, setClassificationStatus] = useState<ClassificationStatus>("idle");
   const [modeOverlaySeq, setModeOverlaySeq] = useState(0);
   const [scorePopup, setScorePopup] = useState<ScoreType | null>(null);
+  const [videoTitle, setVideoTitle] = useState("");
+  const [lastSubmittedUrl, setLastSubmittedUrl] = useState("");
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -193,6 +195,8 @@ export default function Home() {
     setVideoId(id);
     setDownloadStatus("downloading");
     setClassificationStatus("pending");
+    setVideoTitle("");
+    setLastSubmittedUrl(url);
     setDownloadProgress(0);
     setDownloadError(null);
 
@@ -235,6 +239,7 @@ export default function Home() {
               setMode(event.mode === "gym" ? "gym" : "dance");
               setClassificationStatus("done");
               setModeOverlaySeq(s => s + 1);
+              if (event.title) setVideoTitle(event.title);
             } else if (event.type === "error") {
               setDownloadStatus("error");
               setDownloadError(event.message);
@@ -674,15 +679,13 @@ export default function Home() {
         </div>
 
         <div className="flex-1 max-w-xl mx-8">
-          <UrlInput onSubmit={handleUrl} />
+          <UrlInput
+            onSubmit={handleUrl}
+            lastSubmittedTitle={videoTitle}
+            lastSubmittedUrl={lastSubmittedUrl}
+          />
         </div>
 
-        <div
-          className="text-[9px] tracking-[0.2em] uppercase px-3 py-1.5 border border-neon-cyan/20 neon-text-cyan opacity-50"
-          style={{ fontFamily: "var(--font-audiowide)" }}
-        >
-          TreeHacks &apos;26
-        </div>
       </header>
 
       {/* Neon Divider */}
