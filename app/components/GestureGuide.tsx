@@ -23,7 +23,12 @@ const GESTURES = [
   },
 ] as const;
 
-export default function GestureGuide() {
+type Props = {
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+};
+
+export default function GestureGuide({ enabled, onToggle }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -38,8 +43,18 @@ export default function GestureGuide() {
             <span className="text-[11px] tracking-[0.25em] uppercase neon-text-cyan opacity-80">
               Gesture Controls
             </span>
+            <button
+              onClick={() => onToggle(!enabled)}
+              className={`text-[9px] tracking-[0.15em] uppercase px-2 py-0.5 rounded-sm border transition-colors ${
+                enabled
+                  ? "border-green-500/40 text-green-400/80 bg-green-500/10 hover:bg-green-500/20"
+                  : "border-red-500/40 text-red-400/80 bg-red-500/10 hover:bg-red-500/20"
+              }`}
+            >
+              {enabled ? "On" : "Off"}
+            </button>
           </div>
-          <div className="flex flex-col gap-0">
+          <div className={`flex flex-col gap-0${enabled ? "" : " opacity-40"}`}>
             {GESTURES.map((g) => (
               <div
                 key={g.key}
@@ -68,7 +83,11 @@ export default function GestureGuide() {
       {/* Toggle button */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-black/80 border border-neon-cyan/30 rounded-sm text-white/70 hover:text-white/90 hover:border-neon-cyan/50 transition-colors"
+        className={`flex items-center gap-2 px-3 py-1.5 bg-black/80 border rounded-sm transition-colors ${
+          enabled
+            ? "border-neon-cyan/30 text-white/70 hover:text-white/90 hover:border-neon-cyan/50"
+            : "border-white/15 text-white/40 hover:text-white/60 hover:border-white/30"
+        }`}
         title={open ? "Hide gesture controls" : "Show gesture controls"}
       >
         <svg
@@ -90,7 +109,7 @@ export default function GestureGuide() {
           className="text-[10px] tracking-[0.2em] uppercase"
           style={{ fontFamily: "var(--font-audiowide)" }}
         >
-          {open ? "Hide" : "Gestures"}
+          {open ? "Hide" : enabled ? "Gestures" : "Gestures Off"}
         </span>
       </button>
     </div>

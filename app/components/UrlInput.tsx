@@ -2,24 +2,31 @@
 
 import { useState, useEffect, useRef } from "react";
 
-const HISTORY_KEY = "urlHistory";
+const HISTORY_KEY = "urlHistory:v2";
 const MAX_HISTORY = 3;
 
-function readHistory(): string[] {
+type HistoryEntry = { url: string; title: string };
+
+function readHistory(): HistoryEntry[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((s): s is string => typeof s === "string").slice(0, MAX_HISTORY);
+    return parsed
+      .filter(
+        (e): e is HistoryEntry =>
+          typeof e === "object" && e !== null && typeof e.url === "string"
+      )
+      .slice(0, MAX_HISTORY);
   } catch {
     return [];
   }
 }
 
-function pushHistory(url: string) {
-  const history = readHistory().filter((u) => u !== url);
-  history.unshift(url);
+function pushHistory(url: string, title?: string) {
+  const history = readHistory().filter((e) => e.url !== url);
+  history.unshift({ url, title: title ?? "" });
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
   } catch {
@@ -27,20 +34,45 @@ function pushHistory(url: string) {
   }
 }
 
+function updateHistoryTitle(url: string, title: string) {
+  const history = readHistory();
+  const entry = history.find((e) => e.url === url);
+  if (entry) {
+    entry.title = title;
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch {
+      // ignore
+    }
+  }
+}
+
 type Props = {
   onSubmit: (url: string) => void;
   initialUrl?: string;
+  /** Title resolved after download (from SSE classified event). Updates history. */
+  lastSubmittedTitle?: string;
+  /** URL that lastSubmittedTitle corresponds to. */
+  lastSubmittedUrl?: string;
 };
 
-export default function UrlInput({ onSubmit, initialUrl = "" }: Props) {
+export default function UrlInput({ onSubmit, initialUrl = "", lastSubmittedTitle, lastSubmittedUrl }: Props) {
   const [value, setValue] = useState(initialUrl);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setHistory(readHistory());
   }, []);
+
+  // When a title is resolved after download, update the matching history entry
+  useEffect(() => {
+    if (lastSubmittedTitle && lastSubmittedUrl) {
+      updateHistoryTitle(lastSubmittedUrl, lastSubmittedTitle);
+      setHistory(readHistory());
+    }
+  }, [lastSubmittedTitle, lastSubmittedUrl]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -63,12 +95,12 @@ export default function UrlInput({ onSubmit, initialUrl = "" }: Props) {
     onSubmit(trimmed);
   };
 
-  const handlePick = (url: string) => {
-    setValue(url);
+  const handlePick = (entry: HistoryEntry) => {
+    setValue(entry.url);
     setOpen(false);
-    pushHistory(url);
+    pushHistory(entry.url, entry.title);
     setHistory(readHistory());
-    onSubmit(url);
+    onSubmit(entry.url);
   };
 
   return (
@@ -91,18 +123,25 @@ export default function UrlInput({ onSubmit, initialUrl = "" }: Props) {
         />
         {open && history.length > 0 && (
           <ul className="absolute left-0 right-0 top-full mt-1 z-50 border border-neon-cyan/20 bg-[#0a0a1a]/95 backdrop-blur-md">
-            {history.map((url) => (
-              <li key={url}>
+            {history.map((entry) => (
+              <li key={entry.url}>
                 <button
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    handlePick(url);
+                    handlePick(entry);
                   }}
-                  className="w-full text-left px-4 py-2 text-xs tracking-wide text-neon-cyan/70 hover:bg-neon-cyan/10 hover:text-neon-cyan transition-colors truncate"
+                  className="w-full text-left px-4 py-2.5 hover:bg-neon-cyan/10 transition-colors truncate"
                   style={{ fontFamily: "var(--font-chakra-petch)" }}
                 >
-                  {url}
+                  <span className="block text-xs tracking-wide text-neon-cyan/90 truncate">
+                    {entry.title || entry.url}
+                  </span>
+                  {entry.title && (
+                    <span className="block text-[10px] text-neon-cyan/40 truncate mt-0.5">
+                      {entry.url}
+                    </span>
+                  )}
                 </button>
               </li>
             ))}

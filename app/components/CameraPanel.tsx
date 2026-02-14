@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { drawSkeleton, loadPose } from "../lib/pose";
-import { extractOutline } from "../lib/outlineExtractor";
+import { extractOutline, extractMask } from "../lib/outlineExtractor";
 import { captureVideoFrame } from "../lib/frameCapture";
 import type { NormalizedLandmark, PoseResults } from "../lib/pose";
 
@@ -14,6 +14,9 @@ type Props = {
   isReferencePaused?: boolean;
   referenceVideoAspectRatio?: number;
   webcamCaptureRef?: React.MutableRefObject<(() => string | null) | null>;
+  onWebcamAspectRatio?: (aspectRatio: number) => void;
+  referencePose?: NormalizedLandmark[] | null;
+  livePose?: NormalizedLandmark[] | null;
 };
 
 const NEON_SKELETON_STYLE = {
@@ -26,23 +29,72 @@ const NEON_SKELETON_STYLE = {
   clear: true,
 } as const;
 
-export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, playbackRate = 1, isReferencePaused = false, referenceVideoAspectRatio = 16/9, webcamCaptureRef }: Props) {
+/**
+ * Calculate bounding box for a pose (min/max x/y)
+ */
+function getPoseBounds(landmarks: NormalizedLandmark[]): { minX: number; maxX: number; minY: number; maxY: number; centerX: number; centerY: number; width: number; height: number } | null {
+  if (!landmarks || landmarks.length === 0) return null;
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+  // Use torso + arms for bounds (landmarks 11-16, 23-24)
+  const keyIndices = [11, 12, 13, 14, 15, 16, 23, 24];
+
+  for (const idx of keyIndices) {
+    const lm = landmarks[idx];
+    if (!lm || (lm.visibility ?? 0) < 0.3) continue;
+
+    minX = Math.min(minX, lm.x);
+    maxX = Math.max(maxX, lm.x);
+    minY = Math.min(minY, lm.y);
+    maxY = Math.max(maxY, lm.y);
+  }
+
+  if (minX === Infinity) return null;
+
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const width = maxX - minX;
+  const height = maxY - minY;
+
+  return { minX, maxX, minY, maxY, centerX, centerY, width, height };
+}
+
+export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, playbackRate = 1, isReferencePaused = false, referenceVideoAspectRatio = 16/9, webcamCaptureRef, onWebcamAspectRatio, referencePose, livePose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayVideoRef = useRef<HTMLVideoElement>(null);
   const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const tempMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const poseRef = useRef<unknown>(null);
   const animFrameRef = useRef<number>(0);
   const activeRef = useRef(true);
   const overlayRafRef = useRef<number>(0);
 
-  // Create offscreen temp canvas for outline extraction
+  // Refs for values that change frequently (to avoid restarting rAF loop)
+  const referenceVideoTimeRef = useRef(referenceVideoTime);
+  const isReferencePausedRef = useRef(isReferencePaused);
+  const referencePoseRef = useRef(referencePose);
+  const livePoseRef = useRef(livePose);
+
+  // Update refs when props change
+  referenceVideoTimeRef.current = referenceVideoTime;
+  isReferencePausedRef.current = isReferencePaused;
+  referencePoseRef.current = referencePose;
+  livePoseRef.current = livePose;
+
+  // Create offscreen temp canvases for outline and mask extraction
   useEffect(() => {
     if (!tempCanvasRef.current) {
       tempCanvasRef.current = document.createElement("canvas");
       tempCanvasRef.current.width = 640;
       tempCanvasRef.current.height = 480;
+    }
+    if (!tempMaskCanvasRef.current) {
+      tempMaskCanvasRef.current = document.createElement("canvas");
+      tempMaskCanvasRef.current.width = 640;
+      tempMaskCanvasRef.current.height = 480;
     }
   }, []);
 
@@ -68,26 +120,7 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
     video.playbackRate = playbackRate;
   }, [playbackRate, segmentedVideoUrl]);
 
-  // Sync overlay video time and play/pause state with reference video
-  useEffect(() => {
-    const video = overlayVideoRef.current;
-    if (!video || !segmentedVideoUrl || referenceVideoTime === undefined) return;
-    if (video.readyState < 2) return;
-
-    // Sync play/pause state
-    if (isReferencePaused && !video.paused) {
-      video.pause();
-    } else if (!isReferencePaused && video.paused) {
-      video.play().catch(() => {
-        // Ignore play failures
-      });
-    }
-
-    // Only seek if drift is significant (>0.3s) to avoid constant seeking
-    if (Math.abs(video.currentTime - referenceVideoTime) > 0.3) {
-      video.currentTime = referenceVideoTime;
-    }
-  }, [referenceVideoTime, segmentedVideoUrl, isReferencePaused]);
+  // Note: Sync is now handled in the render loop below for better accuracy
 
   // Render the outline overlay on a separate canvas via rAF
   useEffect(() => {
@@ -97,6 +130,28 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
       const overlayVideo = overlayVideoRef.current;
       const overlayCanvas = overlayCanvasRef.current;
       const tempCanvas = tempCanvasRef.current;
+      const tempMaskCanvas = tempMaskCanvasRef.current;
+
+      // Continuous sync: keep overlay video perfectly synced with reference
+      const refTime = referenceVideoTimeRef.current;
+      const refPaused = isReferencePausedRef.current;
+
+      if (overlayVideo && refTime !== undefined && overlayVideo.readyState >= 2) {
+        // Sync play/pause state
+        if (refPaused && !overlayVideo.paused) {
+          overlayVideo.pause();
+        } else if (!refPaused && overlayVideo.paused) {
+          overlayVideo.play().catch(() => {
+            // Ignore play failures
+          });
+        }
+
+        // Tight sync: reduce drift threshold to 0.05s (50ms) for near-perfect sync
+        const drift = Math.abs(overlayVideo.currentTime - refTime);
+        if (drift > 0.05) {
+          overlayVideo.currentTime = refTime;
+        }
+      }
 
       if (overlayCanvas && overlayVideo && tempCanvas && overlayVideo.readyState >= 2) {
         overlayCanvas.width = overlayCanvas.offsetWidth;
@@ -127,17 +182,79 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
             offsetY = 0;
           }
 
-          // Resize temp canvas to match the fitted video size
+          // Resize temp canvases to match the fitted video size
           tempCanvas.width = drawWidth;
           tempCanvas.height = drawHeight;
+          if (tempMaskCanvas) {
+            tempMaskCanvas.width = drawWidth;
+            tempMaskCanvas.height = drawHeight;
+          }
 
+          // Calculate transformation parameters (used for both mask and outline)
+          const refBounds = referencePoseRef.current ? getPoseBounds(referencePoseRef.current) : null;
+          const liveBounds = livePoseRef.current ? getPoseBounds(livePoseRef.current) : null;
+
+          let transform: {
+            scale: number;
+            refCenterX: number;
+            refCenterY: number;
+            liveCenterX: number;
+            liveCenterY: number;
+          } | null = null;
+
+          if (refBounds && liveBounds) {
+            const scaleX = liveBounds.width / refBounds.width;
+            const scaleY = liveBounds.height / refBounds.height;
+            const baseScale = Math.min(scaleX, scaleY);
+            const scale = baseScale * 1.8; // Boost scale to make overlay more visible
+
+            const refCenterX = offsetX + refBounds.centerX * drawWidth;
+            const refCenterY = offsetY + refBounds.centerY * drawHeight;
+            const liveCenterX = (1 - liveBounds.centerX) * containerWidth; // Mirrored
+            const liveCenterY = liveBounds.centerY * containerHeight;
+
+            transform = { scale, refCenterX, refCenterY, liveCenterX, liveCenterY };
+          }
+
+          // 1. First draw background dimming mask
+          if (tempMaskCanvas) {
+            const maskData = extractMask(overlayVideo, tempMaskCanvas);
+            if (maskData) {
+              const tempMaskCtx = tempMaskCanvas.getContext("2d");
+              if (tempMaskCtx) {
+                tempMaskCtx.putImageData(maskData, 0, 0);
+
+                if (transform) {
+                  ctx.save();
+                  ctx.translate(transform.liveCenterX, transform.liveCenterY);
+                  ctx.scale(transform.scale, transform.scale);
+                  ctx.translate(-transform.refCenterX, -transform.refCenterY);
+                  ctx.drawImage(tempMaskCanvas, offsetX, offsetY, drawWidth, drawHeight);
+                  ctx.restore();
+                } else {
+                  ctx.drawImage(tempMaskCanvas, offsetX, offsetY, drawWidth, drawHeight);
+                }
+              }
+            }
+          }
+
+          // 2. Then draw outline on top
           const outlineData = extractOutline(overlayVideo, tempCanvas);
           if (outlineData) {
             const tempCtx = tempCanvas.getContext("2d");
             if (tempCtx) {
               tempCtx.putImageData(outlineData, 0, 0);
-              // Draw at the correct position with correct size to match reference video
-              ctx.drawImage(tempCanvas, offsetX, offsetY, drawWidth, drawHeight);
+
+              if (transform) {
+                ctx.save();
+                ctx.translate(transform.liveCenterX, transform.liveCenterY);
+                ctx.scale(transform.scale, transform.scale);
+                ctx.translate(-transform.refCenterX, -transform.refCenterY);
+                ctx.drawImage(tempCanvas, offsetX, offsetY, drawWidth, drawHeight);
+                ctx.restore();
+              } else {
+                ctx.drawImage(tempCanvas, offsetX, offsetY, drawWidth, drawHeight);
+              }
             }
           }
         }
@@ -186,6 +303,13 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
+
+          // Report webcam aspect ratio once video is ready
+          if (onWebcamAspectRatio && videoRef.current.videoWidth && videoRef.current.videoHeight) {
+            const aspectRatio = videoRef.current.videoWidth / videoRef.current.videoHeight;
+            onWebcamAspectRatio(aspectRatio);
+          }
+
           if (webcamCaptureRef) {
             webcamCaptureRef.current = () =>
               videoRef.current ? captureVideoFrame(videoRef.current, false) : null;

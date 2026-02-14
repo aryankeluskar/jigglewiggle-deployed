@@ -24,6 +24,7 @@ import { processGestureLandmarks, resetGestureState } from "./lib/gestureControl
 import type { GestureAction } from "./lib/gestureControl";
 import { GestureToast, GestureProgressBar } from "./components/GestureToast";
 import GestureGuide from "./components/GestureGuide";
+import ScorePopup, { getScoreType } from "./components/ScorePopup";
 import type { NormalizedLandmark } from "./lib/pose";
 import {
   startRecording,
@@ -43,19 +44,26 @@ import {
 import { resetCoach } from "./lib/coach";
 import { resetScoring } from "./lib/scoring";
 import RecordReplayPanel from "./components/RecordReplayPanel";
+import ModeOverlay from "./components/ModeOverlay";
+
+type ScoreType = "perfect" | "great" | "ok" | "almost" | "miss";
 
 type InputMode = "url" | "generate";
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 type ExtractionStatus = "idle" | "extracting" | "done";
 type SegmentationStatus = "idle" | "segmenting" | "done" | "error" | "unavailable";
+type ClassificationStatus = "idle" | "pending" | "done";
 
-const STRIP_POSE_CACHE_VERSION = 4;
-const STRIP_POSE_INTERVAL_SECONDS = 2;
+const STRIP_POSE_CACHE_VERSION = 6; // Bumped for new frame count
+const TARGET_STRIP_FRAME_COUNT = 12; // Number of key frames to extract
 
 // Scoring blend constants
 const SCORE_EMA_ALPHA = 0.15;
 const MAX_REF_DISTANCE_SEC = 3.0;
 const SCORE_DEAD_ZONE = 2;
+
+// Frame hit detection constants
+const FRAME_HIT_WINDOW = 0.4; // seconds - window to score a frame around frame time
 
 const LIMB_LABELS: Record<string, string> = {
   rightArm: "Right arm",
@@ -66,7 +74,7 @@ const LIMB_LABELS: Record<string, string> = {
 };
 
 function stripPoseCacheKey(videoId: string) {
-  return `stripPoses:v${STRIP_POSE_CACHE_VERSION}:${videoId}:i${STRIP_POSE_INTERVAL_SECONDS}`;
+  return `stripPoses:v${STRIP_POSE_CACHE_VERSION}:${videoId}:n${TARGET_STRIP_FRAME_COUNT}`;
 }
 
 function readStripPoseCache(videoId: string): StripPoseTimeline | null {
@@ -104,19 +112,25 @@ export default function Home() {
   const [segmentationProgress, setSegmentationProgress] = useState(0);
   const [segmentedVideoUrl, setSegmentedVideoUrl] = useState<string | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [isVideoPaused, setIsVideoPaused] = useState(false);
+  const [isVideoPaused, setIsVideoPaused] = useState(true);
   const [referenceVideoAspectRatio, setReferenceVideoAspectRatio] = useState(16/9);
-  const [groqFeedback, setGroqFeedback] = useState("");
+  const [webcamAspectRatio, setWebcamAspectRatio] = useState(4/3);
   const [gestureToast, setGestureToast] = useState<GestureAction | null>(null);
   const [gestureToastSeq, setGestureToastSeq] = useState(0);
   const [gestureProgress, setGestureProgress] = useState(0);
   const [gesturePending, setGesturePending] = useState<GestureAction | null>(null);
+  const [gesturesEnabled, setGesturesEnabled] = useState(true);
   const [replayActive, setReplayActive] = useState(false);
   const [replayPaused, setReplayPaused] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
   const [mode, setMode] = useState<AppMode>("dance");
   const [inputMode, setInputMode] = useState<InputMode>("url");
   const [generatePhase, setGeneratePhase] = useState("");
+  const [classificationStatus, setClassificationStatus] = useState<ClassificationStatus>("idle");
+  const [modeOverlaySeq, setModeOverlaySeq] = useState(0);
+  const [scorePopup, setScorePopup] = useState<ScoreType | null>(null);
+  const [videoTitle, setVideoTitle] = useState("");
+  const [lastSubmittedUrl, setLastSubmittedUrl] = useState("");
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -127,7 +141,12 @@ export default function Home() {
   const groqAnchorRef = useRef<number | null>(null);
   const replayModeRef = useRef(false);
   const replayVideoTimeRef = useRef<number | null>(null);
+  const gesturesEnabledRef = useRef(true);
   const loadedRecordingRef = useRef<PoseRecording | null>(null);
+  const scoredFramesRef = useRef<Set<number>>(new Set()); // Track which frame indices we've scored
+  const lastScoredFrameIndexRef = useRef<number>(-1); // Track last frame we scored to prevent duplicates
+  const prevVideoTimeRef = useRef<number>(0); // Track previous video time to detect rewind
+  const referencePoseRef = useRef<NormalizedLandmark[] | null>(null); // Current reference pose for overlay projection
 
   // Score aura class
   const getAuraClass = () => {
@@ -166,15 +185,22 @@ export default function Home() {
       segmentationStartedRef.current = false;
       groqAnchorRef.current = null;
       smoothedScoreRef.current = 0;
-      setGroqFeedback("");
       resetGroqScoring();
       resetGestureState();
       setMode("dance");
+      setClassificationStatus("idle");
       resetGymScoring();
+      scoredFramesRef.current.clear();
+      lastScoredFrameIndexRef.current = -1;
+      prevVideoTimeRef.current = 0;
+      setScorePopup(null);
     }
 
     setVideoId(id);
     setDownloadStatus("downloading");
+    setClassificationStatus("pending");
+    setVideoTitle("");
+    setLastSubmittedUrl(url);
     setDownloadProgress(0);
     setDownloadError(null);
 
@@ -215,6 +241,9 @@ export default function Home() {
               setDownloadStatus("done");
             } else if (event.type === "classified") {
               setMode(event.mode === "gym" ? "gym" : "dance");
+              setClassificationStatus("done");
+              setModeOverlaySeq(s => s + 1);
+              if (event.title) setVideoTitle(event.title);
             } else if (event.type === "error") {
               setDownloadStatus("error");
               setDownloadError(event.message);
@@ -241,12 +270,18 @@ export default function Home() {
     segmentationStartedRef.current = false;
     groqAnchorRef.current = null;
     smoothedScoreRef.current = 0;
-    setGroqFeedback("");
     resetGroqScoring();
     resetGestureState();
     resetGymScoring();
+    scoredFramesRef.current.clear();
+    lastScoredFrameIndexRef.current = -1;
+    prevVideoTimeRef.current = 0;
+    setScorePopup(null);
+    setClassificationStatus("idle");
 
     setDownloadStatus("downloading");
+    setClassificationStatus("pending");
+    setVideoTitle("");
     setDownloadProgress(0);
     setDownloadError(null);
     setGeneratePhase("researching");
@@ -292,6 +327,9 @@ export default function Home() {
               setGeneratePhase("");
             } else if (event.type === "classified") {
               setMode(event.mode === "gym" ? "gym" : "dance");
+              setClassificationStatus("done");
+              setModeOverlaySeq(s => s + 1);
+              if (event.title) setVideoTitle(event.title);
             } else if (event.type === "error") {
               setDownloadStatus("error");
               setDownloadError(event.message);
@@ -318,6 +356,16 @@ export default function Home() {
     }
   }, [handleUrl]);
 
+  // Safety timeout: if classification hasn't resolved 8s after download, default to dance
+  useEffect(() => {
+    if (downloadStatus !== "done" || classificationStatus !== "pending") return;
+    const timer = setTimeout(() => {
+      setClassificationStatus("done");
+      setModeOverlaySeq(s => s + 1);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [downloadStatus, classificationStatus]);
+
   // Kick off pose extraction after download completes
   useEffect(() => {
     if (downloadStatus !== "done" || !videoId || extractionStatus !== "idle") return;
@@ -338,7 +386,7 @@ export default function Home() {
     extractStripPoses(
       `/api/video/${videoId}`,
       (pct) => setExtractionProgress(pct),
-      STRIP_POSE_INTERVAL_SECONDS
+      TARGET_STRIP_FRAME_COUNT
     )
       .then((timeline) => {
         setPoseTimeline(timeline);
@@ -410,11 +458,62 @@ export default function Home() {
     let raf: number;
     const tick = () => {
       const t = youtubePanelRef.current?.getCurrentTime() ?? 0;
-      const paused = youtubePanelRef.current?.isPaused() ?? false;
+      const paused = youtubePanelRef.current?.isPaused() ?? true;
       const aspectRatio = youtubePanelRef.current?.getVideoAspectRatio() ?? 16/9;
       setCurrentVideoTime(t);
       setIsVideoPaused(paused);
       setReferenceVideoAspectRatio(aspectRatio);
+
+      // Detect rewind/restart - clear scored frames that are now in the future
+      const prevTime = prevVideoTimeRef.current;
+      if (t < prevTime - 0.5) { // Backwards jump detected (allow small jitter)
+        // Clear frames that are now ahead of current time
+        const framesToClear: number[] = [];
+        scoredFramesRef.current.forEach((frameIdx) => {
+          if (poseTimeline[frameIdx] && poseTimeline[frameIdx].time > t) {
+            framesToClear.push(frameIdx);
+          }
+        });
+        framesToClear.forEach((idx) => scoredFramesRef.current.delete(idx));
+
+        // Reset last scored frame if we rewound past it
+        if (lastScoredFrameIndexRef.current >= 0) {
+          const lastFrameTime = poseTimeline[lastScoredFrameIndexRef.current]?.time ?? 0;
+          if (lastFrameTime > t) {
+            lastScoredFrameIndexRef.current = -1;
+            setScorePopup(null); // Clear any visible popup
+          }
+        }
+
+        console.log(`[REWIND] Cleared ${framesToClear.length} frames, rewound to ${t.toFixed(2)}s`);
+      }
+      prevVideoTimeRef.current = t;
+
+      // Frame hit detection - check if we've passed any queue frames
+      for (let i = 0; i < poseTimeline.length; i++) {
+        if (scoredFramesRef.current.has(i)) continue;
+
+        const frameTime = poseTimeline[i].time;
+
+        // Check if we just passed this frame (within a small window)
+        if (t >= frameTime && t < frameTime + 0.2) {
+          // Make sure we haven't just scored a frame (prevent rapid duplicates)
+          if (lastScoredFrameIndexRef.current !== i) {
+            lastScoredFrameIndexRef.current = i;
+            scoredFramesRef.current.add(i);
+
+            // Get current score from smoothedScoreRef
+            const currentScore = Math.round(smoothedScoreRef.current);
+            const scoreType = getScoreType(currentScore);
+            setScorePopup(scoreType);
+
+            console.log(`[POPUP] Frame ${i} at ${frameTime.toFixed(2)}s - Score: ${scoreType} (${currentScore})`);
+
+            break; // Only score one frame per tick
+          }
+        }
+      }
+
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -431,7 +530,6 @@ export default function Home() {
       () => webcamCaptureRef.current?.() ?? null,
       (result) => {
         groqAnchorRef.current = result.smoothedScore;
-        setGroqFeedback(result.feedback);
       },
       3000
     );
@@ -450,8 +548,8 @@ export default function Home() {
     // Recording hook
     if (isRecording()) recordFrame(landmarks!, currentVideoTime);
 
-    // Gesture detection (skip during replay to prevent spurious video seeks)
-    const gesture = replayModeRef.current
+    // Gesture detection (skip during replay or when disabled)
+    const gesture = (replayModeRef.current || !gesturesEnabledRef.current)
       ? { lastAction: null as GestureAction | null, pending: null as GestureAction | null, progress: 0 }
       : processGestureLandmarks(landmarks);
     setGestureProgress(gesture.progress);
@@ -488,8 +586,20 @@ export default function Home() {
     if (poseTimeline && landmarks && landmarks.length >= 33) {
       const refFrame = findClosestFrame(poseTimeline, effectiveVideoTime);
       if (refFrame && Math.abs(refFrame.time - effectiveVideoTime) <= MAX_REF_DISTANCE_SEC) {
-        detailed = comparePosesDetailed(refFrame.landmarks, landmarks);
+        // Store reference pose for overlay projection
+        referencePoseRef.current = refFrame.landmarks;
+
+        detailed = comparePosesDetailed(
+          refFrame.landmarks,
+          landmarks,
+          referenceVideoAspectRatio,
+          webcamAspectRatio
+        );
+      } else {
+        referencePoseRef.current = null;
       }
+    } else {
+      referencePoseRef.current = null;
     }
 
     // 3. Blend scores
@@ -522,6 +632,8 @@ export default function Home() {
       setScore(rounded);
     }
 
+    // Frame hit detection is now handled in the video time polling loop above
+
     // 5. Build summary for LLM coach (mode-aware)
     const blendedFrame = { ...frame, score: Math.round(smoothed), issues };
     const summary = mode === "gym"
@@ -531,7 +643,8 @@ export default function Home() {
       summary.reference = detailed;
     }
 
-    if (!replayModeRef.current) {
+    // Only coach while the reference video is actually playing (not paused/before start)
+    if (!replayModeRef.current && !isVideoPaused) {
       getCoachMessage(summary, mode).then((result) => {
         if (result) {
           setCoachMsg(result.message);
@@ -575,7 +688,6 @@ export default function Home() {
     resetCoach();
     resetGestureState();
     groqAnchorRef.current = null;
-    setGroqFeedback("");
 
     replayModeRef.current = true;
     setReplayActive(true);
@@ -685,124 +797,159 @@ export default function Home() {
             </button>
           </div>
           {inputMode === "url" ? (
-            <UrlInput onSubmit={handleUrl} />
+            <UrlInput
+              onSubmit={handleUrl}
+              lastSubmittedTitle={videoTitle}
+              lastSubmittedUrl={lastSubmittedUrl}
+            />
           ) : (
             <GenerateInput onSubmit={handleGenerate} disabled={downloadStatus === "downloading"} />
           )}
         </div>
 
-        <div
-          className="text-[9px] tracking-[0.2em] uppercase px-3 py-1.5 border border-neon-cyan/20 neon-text-cyan opacity-50"
-          style={{ fontFamily: "var(--font-audiowide)" }}
-        >
-          TreeHacks &apos;26
-        </div>
       </header>
 
       {/* Neon Divider */}
       <div className="flex-shrink-0 neon-divider relative z-10" />
 
-      {/* Main Split Screen */}
-      <main className="flex-1 flex gap-3 p-3 min-h-0 relative z-10">
-        {/* Left — Reference Video */}
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
-          <YoutubePanel
-            ref={youtubePanelRef}
-            videoId={videoId}
-            downloadStatus={downloadStatus}
-            downloadProgress={downloadProgress}
-            downloadError={downloadError}
-            extractionStatus={extractionStatus}
-            extractionProgress={extractionProgress}
-            segmentationStatus={segmentationStatus}
-            segmentationProgress={segmentationProgress}
-            generatePhase={generatePhase}
-          />
+      {/* Mode activation overlay */}
+      <ModeOverlay mode={mode} seq={modeOverlaySeq} />
 
-          {/* Playback Speed Slider */}
-          {downloadStatus === "done" && (
-            <div className="flex items-center gap-3 px-3 py-2 bg-black/30 border border-neon-cyan/10 rounded">
-              <label
-                className="text-[10px] tracking-[0.2em] uppercase text-neon-cyan/50"
-                style={{ fontFamily: "var(--font-audiowide)" }}
-              >
-                Speed
-              </label>
-              <input
-                type="range"
-                min="0.25"
-                max="2"
-                step="0.25"
-                value={playbackRate}
-                onChange={(e) => {
-                  const rate = parseFloat(e.target.value);
-                  setPlaybackRate(rate);
-                  youtubePanelRef.current?.setPlaybackRate(rate);
-                }}
-                className="flex-1 h-1 bg-black/50 rounded appearance-none cursor-pointer"
-                style={{
-                  accentColor: "#00ffff",
-                }}
-              />
-              <span
-                className="text-[11px] text-neon-cyan/70 font-mono min-w-[40px] text-right"
-                style={{ fontFamily: "var(--font-audiowide)" }}
-              >
-                {playbackRate.toFixed(2)}x
-              </span>
+      {/* Classification pending — "Detecting mode..." indicator */}
+      {downloadStatus === "done" && classificationStatus === "pending" && (
+        <main className="flex-1 flex items-center justify-center min-h-0 relative z-10">
+          <div className="flex flex-col items-center gap-4">
+            <div
+              className="text-lg tracking-[0.3em] uppercase neon-text-cyan animate-glow-pulse"
+              style={{ fontFamily: "var(--font-audiowide)" }}
+            >
+              Detecting mode...
             </div>
-          )}
-        </div>
-
-        {/* Right — Live Camera with score-reactive glow */}
-        <div className={`flex-1 min-w-0 relative transition-all duration-700 ${getCameraGlow()}`}>
-          <GestureProgressBar progress={gestureProgress} pending={gesturePending} />
-          <CameraPanel
-            onPose={handlePose}
-            segmentedVideoUrl={segmentedVideoUrl}
-            referenceVideoTime={currentVideoTime}
-            playbackRate={playbackRate}
-            isReferencePaused={isVideoPaused}
-            referenceVideoAspectRatio={referenceVideoAspectRatio}
-            webcamCaptureRef={webcamCaptureRef}
-          />
-          <GestureGuide />
-        </div>
-      </main>
-
-      {/* Move Queue Strip */}
-      {poseTimeline && poseTimeline.length > 0 && (
-        <div className="flex-shrink-0 px-3 relative z-10">
-          <MoveQueue
-            timeline={poseTimeline}
-            currentTime={currentVideoTime}
-            livePoseRef={livePoseRef}
-            onSeek={(time: number) => youtubePanelRef.current?.seekTo(time)}
-            playbackRate={playbackRate}
-          />
-        </div>
+            <div className="w-48 h-1 rounded-full overflow-hidden bg-black/40 border border-neon-cyan/10">
+              <div className="h-full neon-progress" style={{ width: "60%" }} />
+            </div>
+          </div>
+        </main>
       )}
 
-      {/* Coach Panel */}
-      <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
-        <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} mode={mode} />
-      </footer>
+      {/* Main Split Screen — only when classification resolved or still downloading */}
+      {(classificationStatus === "done" || downloadStatus !== "done") && (
+        <>
+          <main className="flex-1 flex gap-3 p-3 min-h-0 relative z-10">
+            {/* Left — Reference Video */}
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
+              <YoutubePanel
+                ref={youtubePanelRef}
+                videoId={videoId}
+                downloadStatus={downloadStatus}
+                downloadProgress={downloadProgress}
+                downloadError={downloadError}
+                extractionStatus={extractionStatus}
+                extractionProgress={extractionProgress}
+                segmentationStatus={segmentationStatus}
+                segmentationProgress={segmentationProgress}
+                generatePhase={generatePhase}
+              />
 
-      {/* Record / Replay toolbar */}
-      <RecordReplayPanel
-        videoId={videoId}
-        poseTimeline={poseTimeline}
-        isReplaying={replayActive}
-        isPaused={replayPaused}
-        replayProgress={replayProgress}
-        onStartRecord={handleStartRecord}
-        onStopRecord={handleStopRecord}
-        onLoadRecording={handleLoadRecording}
-        onStartReplay={handleStartReplay}
-        onPauseReplay={handlePauseReplay}
-        onResumeReplay={handleResumeReplay}
-        onStopReplay={handleStopReplay}
-      />
+              {/* Playback Speed Slider */}
+              {downloadStatus === "done" && (
+                <div className="flex items-center gap-3 px-3 py-2 bg-black/30 border border-neon-cyan/10 rounded">
+                  <label
+                    className="text-[10px] tracking-[0.2em] uppercase text-neon-cyan/50"
+                    style={{ fontFamily: "var(--font-audiowide)" }}
+                  >
+                    Speed
+                  </label>
+                  <input
+                    type="range"
+                    min="0.25"
+                    max="2"
+                    step="0.25"
+                    value={playbackRate}
+                    onChange={(e) => {
+                      const rate = parseFloat(e.target.value);
+                      setPlaybackRate(rate);
+                      youtubePanelRef.current?.setPlaybackRate(rate);
+                    }}
+                    className="flex-1 h-1 bg-black/50 rounded appearance-none cursor-pointer"
+                    style={{
+                      accentColor: "#00ffff",
+                    }}
+                  />
+                  <span
+                    className="text-[11px] text-neon-cyan/70 font-mono min-w-[40px] text-right"
+                    style={{ fontFamily: "var(--font-audiowide)" }}
+                  >
+                    {playbackRate.toFixed(2)}x
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Right — Live Camera with score-reactive glow */}
+            <div className={`flex-1 min-w-0 relative transition-all duration-700 ${getCameraGlow()}`}>
+              <GestureProgressBar progress={gestureProgress} pending={gesturePending} />
+              <CameraPanel
+                onPose={handlePose}
+                segmentedVideoUrl={segmentedVideoUrl}
+                referenceVideoTime={currentVideoTime}
+                playbackRate={playbackRate}
+                isReferencePaused={isVideoPaused}
+                referenceVideoAspectRatio={referenceVideoAspectRatio}
+                webcamCaptureRef={webcamCaptureRef}
+                onWebcamAspectRatio={setWebcamAspectRatio}
+                referencePose={referencePoseRef.current}
+                livePose={livePoseRef.current}
+              />
+              <ScorePopup score={scorePopup} onComplete={() => setScorePopup(null)} />
+              <GestureGuide
+                enabled={gesturesEnabled}
+                onToggle={(v) => {
+                  setGesturesEnabled(v);
+                  gesturesEnabledRef.current = v;
+                  if (!v) resetGestureState();
+                }}
+              />
+            </div>
+          </main>
+
+          {/* Move Queue Strip */}
+          {poseTimeline && poseTimeline.length > 0 && (
+            <div className="flex-shrink-0 px-3 relative z-10">
+              <MoveQueue
+                timeline={poseTimeline}
+                currentTime={currentVideoTime}
+                livePoseRef={livePoseRef}
+                onSeek={(time: number) => youtubePanelRef.current?.seekTo(time)}
+                playbackRate={playbackRate}
+                referenceVideoAspectRatio={referenceVideoAspectRatio}
+                webcamAspectRatio={webcamAspectRatio}
+              />
+            </div>
+          )}
+
+          {/* Coach Panel */}
+          <footer className="flex-shrink-0 px-3 pb-3 relative z-10">
+            <CoachPanel score={score} message={coachMsg} showScore={poseTimeline !== null} mode={mode} />
+          </footer>
+
+          {/* Record / Replay toolbar */}
+          <RecordReplayPanel
+            videoId={videoId}
+            poseTimeline={poseTimeline}
+            isReplaying={replayActive}
+            isPaused={replayPaused}
+            replayProgress={replayProgress}
+            onStartRecord={handleStartRecord}
+            onStopRecord={handleStopRecord}
+            onLoadRecording={handleLoadRecording}
+            onStartReplay={handleStartReplay}
+            onPauseReplay={handlePauseReplay}
+            onResumeReplay={handleResumeReplay}
+            onStopReplay={handleStopReplay}
+          />
+        </>
+      )}
     </div>
   );
 }
