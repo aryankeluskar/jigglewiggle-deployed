@@ -24,7 +24,7 @@ import { processGestureLandmarks, resetGestureState } from "./lib/gestureControl
 import type { GestureAction } from "./lib/gestureControl";
 import { GestureToast, GestureProgressBar } from "./components/GestureToast";
 import GestureGuide from "./components/GestureGuide";
-import ScorePopup, { getScoreType } from "./components/ScorePopup";
+import ScorePopup, { getScoreType, SCORE_POINTS } from "./components/ScorePopup";
 import type { NormalizedLandmark } from "./lib/pose";
 import {
   startRecording,
@@ -147,6 +147,10 @@ export default function Home() {
   const [reportData, setReportData] = useState<AIReport | null>(null);
   const [reportStats, setReportStats] = useState<SessionStats | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [totalPoints, setTotalPoints] = useState(0);
+  const [scorePopupPoints, setScorePopupPoints] = useState(0);
+  const [comboFlash, setComboFlash] = useState<number | null>(null);
+  const [pointsBumpSeq, setPointsBumpSeq] = useState(0);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
@@ -165,6 +169,15 @@ export default function Home() {
   const lastScoredFrameIndexRef = useRef<number>(-1); // Track last frame we scored to prevent duplicates
   const prevVideoTimeRef = useRef<number>(0); // Track previous video time to detect rewind
   const referencePoseRef = useRef<NormalizedLandmark[] | null>(null); // Current reference pose for overlay projection
+  const streakRef = useRef(0);
+
+  // Auto-clear combo flash after 2s
+  useEffect(() => {
+    if (comboFlash !== null) {
+      const timer = setTimeout(() => setComboFlash(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [comboFlash]);
 
   // Score aura class
   const getAuraClass = () => {
@@ -219,6 +232,10 @@ export default function Home() {
       lastScoredFrameIndexRef.current = -1;
       prevVideoTimeRef.current = 0;
       setScorePopup(null);
+      setTotalPoints(0);
+      setScorePopupPoints(0);
+      setComboFlash(null);
+      streakRef.current = 0;
     }
 
     setVideoId(id);
@@ -302,6 +319,10 @@ export default function Home() {
     lastScoredFrameIndexRef.current = -1;
     prevVideoTimeRef.current = 0;
     setScorePopup(null);
+    setTotalPoints(0);
+    setScorePopupPoints(0);
+    setComboFlash(null);
+    streakRef.current = 0;
     setSummaryReady(false);
     setClassificationStatus("idle");
 
@@ -585,10 +606,24 @@ export default function Home() {
             // Get current score from smoothedScoreRef
             const currentScore = Math.round(smoothedScoreRef.current);
             const scoreType = getScoreType(currentScore);
+            const pts = SCORE_POINTS[scoreType];
+            setScorePopupPoints(pts);
             setScorePopup(scoreType);
+            setTotalPoints(prev => prev + pts);
+            setPointsBumpSeq(s => s + 1);
             recordFrameHit(scoreType as import("./lib/sessionStats").ScoreType);
 
-            console.log(`[POPUP] Frame ${i} at ${frameTime.toFixed(2)}s - Score: ${scoreType} (${currentScore})`);
+            // Streak tracking — combo flash every 5th consecutive non-miss
+            if (scoreType !== "miss") {
+              streakRef.current += 1;
+              if (streakRef.current > 0 && streakRef.current % 5 === 0) {
+                setComboFlash(streakRef.current);
+              }
+            } else {
+              streakRef.current = 0;
+            }
+
+            console.log(`[POPUP] Frame ${i} at ${frameTime.toFixed(2)}s - Score: ${scoreType} (${currentScore}) +${pts}pts streak:${streakRef.current}`);
 
             break; // Only score one frame per tick
           }
@@ -986,6 +1021,22 @@ export default function Home() {
             {/* Right — Live Camera with score-reactive glow */}
             <div className={`flex-1 min-w-0 relative transition-all duration-700 ${getCameraGlow()}`}>
               <GestureProgressBar progress={gestureProgress} pending={gesturePending} />
+
+              {/* Total Points Counter */}
+              {totalPoints > 0 && (
+                <div
+                  key={pointsBumpSeq}
+                  className="points-counter-wrap"
+                >
+                  <span className="points-counter-value" style={{ fontFamily: "var(--font-audiowide)" }}>
+                    {totalPoints.toLocaleString()}
+                  </span>
+                  <span className="points-counter-label" style={{ fontFamily: "var(--font-audiowide)" }}>
+                    PTS
+                  </span>
+                </div>
+              )}
+
               <CameraPanel
                 onPose={handlePose}
                 segmentedVideoUrl={segmentedVideoUrl}
@@ -998,7 +1049,24 @@ export default function Home() {
                 referencePose={referencePoseRef.current}
                 livePose={livePoseRef.current}
               />
-              <ScorePopup score={scorePopup} onComplete={() => setScorePopup(null)} />
+              <ScorePopup score={scorePopup} points={scorePopupPoints} onComplete={() => setScorePopup(null)} />
+
+              {/* Combo Streak Flash */}
+              {comboFlash && (
+                <div className="absolute inset-0 pointer-events-none z-[55] flex items-center justify-center">
+                  <div className="combo-flash-overlay">
+                    <div
+                      className="combo-flash-text"
+                      style={{ fontFamily: "var(--font-audiowide)" }}
+                    >
+                      {comboFlash}x STREAK
+                    </div>
+                    <div className="combo-flash-ring" />
+                    <div className="combo-flash-ring combo-flash-ring-2" />
+                  </div>
+                </div>
+              )}
+
               <GestureGuide
                 enabled={gesturesEnabled}
                 onToggle={(v) => {

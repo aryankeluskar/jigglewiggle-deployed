@@ -23,10 +23,10 @@ export type AIReport = {
 };
 
 function computeGrade(avg: number): AIReport["grade"] {
-  if (avg >= 90) return "S";
-  if (avg >= 75) return "A";
-  if (avg >= 60) return "B";
-  if (avg >= 45) return "C";
+  if (avg >= 78) return "S";
+  if (avg >= 62) return "A";
+  if (avg >= 45) return "B";
+  if (avg >= 30) return "C";
   return "D";
 }
 

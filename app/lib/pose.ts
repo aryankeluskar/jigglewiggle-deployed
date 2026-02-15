@@ -124,12 +124,13 @@ export function drawSkeleton(
 /**
  * Dynamically loads MediaPipe Pose scripts from CDN.
  * Returns a configured Pose instance.
+ * Retries up to 3 times on transient CDN failures.
  */
 export async function loadPose(): Promise<unknown> {
-  // Load scripts dynamically
   const loadScript = (src: string): Promise<void> =>
     new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
         resolve();
         return;
       }
@@ -141,26 +142,47 @@ export async function loadPose(): Promise<unknown> {
       document.head.appendChild(s);
     });
 
-  await loadScript(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"
-  );
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mp = (window as any).Pose;
-  if (!mp) throw new Error("MediaPipe Pose not loaded");
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await loadScript(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"
+      );
 
-  const pose = new mp({
-    locateFile: (file: string) =>
-      `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`,
-  });
+      // Small delay to let the global fully initialize
+      await delay(100);
 
-  pose.setOptions({
-    modelComplexity: 1,
-    smoothLandmarks: true,
-    enableSegmentation: false,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5,
-  });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mp = (window as any).Pose;
+      if (!mp) throw new Error("MediaPipe Pose global not available");
 
-  return pose;
+      const pose = new mp({
+        locateFile: (file: string) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`,
+      });
+
+      pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+
+      return pose;
+    } catch (err) {
+      console.warn(`[Pose] Attempt ${attempt}/${MAX_RETRIES} failed:`, err);
+      if (attempt === MAX_RETRIES) throw err;
+      // Remove failed script tag so retry can re-add it
+      const tag = document.querySelector(
+        `script[src*="@mediapipe/pose@0.5.1675469404/pose.js"]`
+      );
+      tag?.remove();
+      await delay(1000 * attempt);
+    }
+  }
+
+  throw new Error("MediaPipe Pose failed to load after retries");
 }
