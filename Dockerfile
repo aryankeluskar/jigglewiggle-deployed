@@ -21,7 +21,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci
-RUN npm rebuild lightningcss
+RUN npm install --no-save lightningcss-linux-x64-gnu@1.30.2
 
 COPY . .
 RUN npm run build
