@@ -1,21 +1,31 @@
 "use client";
 
 import type { AIReport } from "./types";
+import type { AppMode } from "../../shared/mode";
 import type { SessionStats } from "../../lib/sessionStats";
-import { GRADE_COLORS } from "./types";
+import { getGradeColors } from "./types";
 
 type Props = {
   stats: SessionStats;
   report: AIReport;
   active: boolean;
+  mode: AppMode;
 };
 
-const HIT_COLORS: Record<string, string> = {
+const DANCE_HIT_COLORS: Record<string, string> = {
   perfect: "#00ffff",
   great: "#39ff14",
   ok: "#ffe100",
   almost: "#ff6b2b",
   miss: "#ff003c",
+};
+
+const GYM_HIT_COLORS: Record<string, string> = {
+  perfect: "#a0d4ff",
+  great: "#4ade80",
+  ok: "#ffb347",
+  almost: "#ff8c42",
+  miss: "#ff4444",
 };
 
 function formatDuration(ms: number): string {
@@ -25,19 +35,24 @@ function formatDuration(ms: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function SlideVibe({ stats, report, active }: Props) {
-  const gc = GRADE_COLORS[report.grade] ?? GRADE_COLORS.B;
+export default function SlideVibe({ stats, report, active, mode }: Props) {
+  const isGym = mode === "gym";
+  const gc = getGradeColors(report.grade, mode);
+  const hitColors = isGym ? GYM_HIT_COLORS : DANCE_HIT_COLORS;
   const totalHits = Object.values(stats.frameHits).reduce((a, b) => a + b, 0);
 
   const statCards: { label: string; value: string }[] = [
-    { label: "Peak Score", value: String(stats.peakScore) },
-    { label: "Frames Hit", value: `${totalHits} / ${stats.totalFrames}` },
-    { label: "Session", value: formatDuration(stats.sessionDurationMs) },
+    { label: isGym ? "Peak Form" : "Peak Score", value: String(stats.peakScore) },
+    { label: isGym ? "Reps Matched" : "Frames Hit", value: `${totalHits} / ${stats.totalFrames}` },
+    { label: isGym ? "Duration" : "Session", value: formatDuration(stats.sessionDurationMs) },
     {
-      label: "Hit Rate",
+      label: isGym ? "Accuracy" : "Hit Rate",
       value: stats.totalFrames > 0 ? `${Math.round((totalHits / stats.totalFrames) * 100)}%` : "—",
     },
   ];
+
+  const statBorder = isGym ? "rgba(160, 212, 255, 0.12)" : "rgba(0, 255, 255, 0.12)";
+  const statCorner = isGym ? "rgba(160, 212, 255, 0.3)" : "rgba(0, 255, 255, 0.3)";
 
   return (
     <div
@@ -80,7 +95,11 @@ export default function SlideVibe({ stats, report, active }: Props) {
           <div
             key={card.label}
             className={`report-stat-card ${active ? "report-stat-pop" : ""}`}
-            style={{ animationDelay: `${0.3 + i * 0.1}s` }}
+            style={{
+              animationDelay: `${0.3 + i * 0.1}s`,
+              borderColor: statBorder,
+              ["--stat-corner-color" as string]: statCorner,
+            }}
           >
             <div
               className="text-[11px] tracking-[0.2em] uppercase mb-1.5"
@@ -103,6 +122,7 @@ export default function SlideVibe({ stats, report, active }: Props) {
         {(["perfect", "great", "ok", "almost", "miss"] as const).map((type) => {
           const count = stats.frameHits[type] ?? 0;
           if (count === 0) return null;
+          const pillColor = hitColors[type];
           return (
             <div
               key={type}
@@ -110,7 +130,7 @@ export default function SlideVibe({ stats, report, active }: Props) {
             >
               <span
                 className="w-2.5 h-2.5 rounded-full"
-                style={{ background: HIT_COLORS[type], boxShadow: `0 0 6px ${HIT_COLORS[type]}` }}
+                style={{ background: pillColor, boxShadow: `0 0 6px ${pillColor}` }}
               />
               <span className="text-[12px] tracking-wider uppercase text-white/60" style={{ fontFamily: "var(--font-audiowide)" }}>
                 {type}

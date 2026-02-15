@@ -21,7 +21,9 @@ export type ReportCardProps = {
   onClose: () => void;
 };
 
-export const GRADE_COLORS: Record<string, { color: string; glow: string; shadow: string }> = {
+type GradeStyle = { color: string; glow: string; shadow: string };
+
+const DANCE_GRADE_COLORS: Record<string, GradeStyle> = {
   S: {
     color: "#00ffff",
     glow: "rgba(255, 0, 170, 0.6)",
@@ -48,6 +50,42 @@ export const GRADE_COLORS: Record<string, { color: string; glow: string; shadow:
     shadow: "0 0 10px rgba(255,0,60,1), 0 0 30px rgba(255,0,60,0.9), 0 0 60px rgba(184,41,255,0.6), 0 0 120px rgba(184,41,255,0.4), 0 0 200px rgba(255,0,60,0.2)",
   },
 };
+
+const GYM_GRADE_COLORS: Record<string, GradeStyle> = {
+  S: {
+    color: "#a0d4ff",
+    glow: "rgba(255, 107, 43, 0.6)",
+    shadow: "0 0 10px rgba(160,212,255,1), 0 0 30px rgba(160,212,255,0.9), 0 0 60px rgba(255,107,43,0.6), 0 0 120px rgba(255,107,43,0.4), 0 0 200px rgba(160,212,255,0.2)",
+  },
+  A: {
+    color: "#4ade80",
+    glow: "rgba(160, 212, 255, 0.6)",
+    shadow: "0 0 10px rgba(74,222,128,1), 0 0 30px rgba(74,222,128,0.9), 0 0 60px rgba(160,212,255,0.6), 0 0 120px rgba(160,212,255,0.4), 0 0 200px rgba(74,222,128,0.2)",
+  },
+  B: {
+    color: "#ffb347",
+    glow: "rgba(255, 140, 66, 0.6)",
+    shadow: "0 0 10px rgba(255,179,71,1), 0 0 30px rgba(255,179,71,0.9), 0 0 60px rgba(255,140,66,0.6), 0 0 120px rgba(255,140,66,0.4), 0 0 200px rgba(255,179,71,0.2)",
+  },
+  C: {
+    color: "#ff8c42",
+    glow: "rgba(255, 68, 68, 0.6)",
+    shadow: "0 0 10px rgba(255,140,66,1), 0 0 30px rgba(255,140,66,0.9), 0 0 60px rgba(255,68,68,0.6), 0 0 120px rgba(255,68,68,0.4), 0 0 200px rgba(255,140,66,0.2)",
+  },
+  D: {
+    color: "#ff4444",
+    glow: "rgba(255, 107, 43, 0.6)",
+    shadow: "0 0 10px rgba(255,68,68,1), 0 0 30px rgba(255,68,68,0.9), 0 0 60px rgba(255,107,43,0.6), 0 0 120px rgba(255,107,43,0.4), 0 0 200px rgba(255,68,68,0.2)",
+  },
+};
+
+export function getGradeColors(grade: string, mode: AppMode): GradeStyle {
+  const palette = mode === "gym" ? GYM_GRADE_COLORS : DANCE_GRADE_COLORS;
+  return palette[grade] ?? palette.B;
+}
+
+/** @deprecated Use getGradeColors(grade, mode) instead */
+export const GRADE_COLORS = DANCE_GRADE_COLORS;
 
 export const LIMB_LABELS: Record<string, string> = {
   rightArm: "Right Arm",
