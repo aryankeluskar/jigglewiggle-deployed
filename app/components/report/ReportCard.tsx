@@ -18,6 +18,7 @@ export default function ReportCard({
   onClose,
 }: ReportCardProps) {
   const [slide, setSlide] = useState(0);
+  const isGym = mode === "gym";
 
   const advance = useCallback(() => {
     if (slide >= TOTAL_SLIDES - 1) {
@@ -41,9 +42,14 @@ export default function ReportCard({
     setSlide(0);
   }, [report]);
 
+  const dotColor = isGym ? "#a0d4ff" : "#00ffff";
+  const dotGlow = isGym
+    ? "0 0 8px rgba(160,212,255,0.6), 0 0 20px rgba(160,212,255,0.3)"
+    : "0 0 8px rgba(0,255,255,0.6), 0 0 20px rgba(0,255,255,0.3)";
+
   return (
     <div
-      className="report-overlay"
+      className={isGym ? "report-overlay report-overlay-gym" : "report-overlay"}
       onClick={advance}
     >
       {/* Loading state */}
@@ -53,7 +59,7 @@ export default function ReportCard({
             className="text-lg tracking-[0.3em] uppercase neon-text-cyan animate-glow-pulse"
             style={{ fontFamily: "var(--font-audiowide)" }}
           >
-            Analyzing your moves...
+            {isGym ? "Analyzing your form..." : "Analyzing your moves..."}
           </div>
           <div className="w-48 h-1 rounded-full overflow-hidden bg-black/40 border border-neon-cyan/10">
             <div className="h-full neon-progress" style={{ width: "60%" }} />
@@ -64,10 +70,10 @@ export default function ReportCard({
       {/* Slides */}
       {report && (
         <>
-          <SlideGrade report={report} videoTitle={videoTitle} active={slide === 0} />
-          <SlideBody stats={stats} report={report} active={slide === 1} />
-          <SlideVibe stats={stats} report={report} active={slide === 2} />
-          <SlideLevelUp report={report} active={slide === 3} onClose={onClose} />
+          <SlideGrade report={report} videoTitle={videoTitle} active={slide === 0} mode={mode} />
+          <SlideBody stats={stats} report={report} active={slide === 1} mode={mode} />
+          <SlideVibe stats={stats} report={report} active={slide === 2} mode={mode} />
+          <SlideLevelUp report={report} active={slide === 3} onClose={onClose} mode={mode} />
 
           {/* Dot navigation */}
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-20">
@@ -80,8 +86,8 @@ export default function ReportCard({
                 }}
                 className="w-2.5 h-2.5 rounded-full transition-all duration-300"
                 style={{
-                  background: i === slide ? "#00ffff" : "rgba(255,255,255,0.2)",
-                  boxShadow: i === slide ? "0 0 8px rgba(0,255,255,0.6), 0 0 20px rgba(0,255,255,0.3)" : "none",
+                  background: i === slide ? dotColor : "rgba(255,255,255,0.2)",
+                  boxShadow: i === slide ? dotGlow : "none",
                   transform: i === slide ? "scale(1.3)" : "scale(1)",
                 }}
               />

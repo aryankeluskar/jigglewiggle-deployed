@@ -1,16 +1,19 @@
 "use client";
 
 import type { AIReport } from "./types";
-import { GRADE_COLORS } from "./types";
+import type { AppMode } from "../../shared/mode";
+import { getGradeColors } from "./types";
 
 type Props = {
   report: AIReport;
   videoTitle: string;
   active: boolean;
+  mode: AppMode;
 };
 
-export default function SlideGrade({ report, videoTitle, active }: Props) {
-  const gc = GRADE_COLORS[report.grade] ?? GRADE_COLORS.B;
+export default function SlideGrade({ report, videoTitle, active, mode }: Props) {
+  const gc = getGradeColors(report.grade, mode);
+  const isGym = mode === "gym";
 
   return (
     <div
@@ -38,12 +41,20 @@ export default function SlideGrade({ report, videoTitle, active }: Props) {
         </>
       )}
 
+      {/* Subheading label */}
+      <div
+        className="text-[11px] tracking-[0.4em] uppercase opacity-40 mb-4"
+        style={{ fontFamily: "var(--font-audiowide)", color: gc.color }}
+      >
+        {isGym ? "Form Report" : "Performance Report"}
+      </div>
+
       {/* Video title */}
       <div
         className="text-[13px] tracking-[0.3em] uppercase opacity-50 mb-8"
         style={{ fontFamily: "var(--font-audiowide)", color: gc.color }}
       >
-        {videoTitle || "Performance Report"}
+        {videoTitle || (isGym ? "Workout Session" : "Dance Session")}
       </div>
 
       {/* Grade letter */}

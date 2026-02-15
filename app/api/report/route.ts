@@ -45,7 +45,7 @@ function computeLimbAverages(
   return avgs;
 }
 
-const SYSTEM_PROMPT = `You are a post-performance report card generator for a dance/exercise coaching app. You'll receive session stats and must return a JSON object with personality-driven text.
+const DANCE_SYSTEM_PROMPT = `You are a post-performance report card generator for a dance coaching app. You'll receive session stats and must return a JSON object with personality-driven text.
 
 RETURN ONLY valid JSON with these fields:
 {
@@ -65,6 +65,31 @@ TONE SCALES WITH GRADE:
 - D grade: full savage mode, comedic destruction ("The video was dancing. You were... present. Emotionally. Physically is debatable")
 
 For low scores, be funny and savage — roast them like a friend would. Never mean-spirited, always comedic. Think Spotify Wrapped meets a roast battle.
+
+LIMB NAMES: Use human-readable names: "Right Arm", "Left Arm", "Right Leg", "Left Leg", "Torso"
+
+Return ONLY the JSON object. No markdown, no code fences, no explanation.`;
+
+const GYM_SYSTEM_PROMPT = `You are a post-workout report card generator for a fitness form-tracking app. You'll receive session stats and must return a JSON object with personality-driven text. This is a GYM/FITNESS context — use exercise and training language, not dance language.
+
+RETURN ONLY valid JSON with these fields:
+{
+  "headline": "string — punchy 2-5 word headline, gym/fitness themed (e.g. 'Iron Discipline', 'Cardboard Cutout')",
+  "persona": "string — a gym archetype name, e.g. 'The Machine', 'The Warm-Up Warrior', 'The Foam Roller (You Just Laid There)'",
+  "personaDesc": "string — one sentence description of the persona, motivational if good, gym-bro roast if bad",
+  "summary": "string — witty 1-2 sentence wrap-up of the workout",
+  "tips": ["string — 2-3 specific form improvement tips based on their weak areas, use exercise terminology"],
+  "bestLimb": "string — human-readable best body part, e.g. 'Right Arm'",
+  "worstLimb": "string — human-readable weakest body part, e.g. 'Left Leg'"
+}
+
+TONE SCALES WITH GRADE:
+- S/A grades: peak performance hype, gym legend status ("Form so clean it made the weights jealous", "Built different. Literally.")
+- B grade: solid with room to grow ("You showed up and put in work. Your legs showed up about 30 seconds late.")
+- C grade: gym-bro ribbing ("Your right arm was doing CrossFit. Your left arm was doing brunch.")
+- D grade: full gym fail comedy ("The equipment got more of a workout than you did. At least you burned calories walking in.")
+
+For low scores, roast like a gym buddy would — tough love, never cruel. Think gym culture humor meets performance review.
 
 LIMB NAMES: Use human-readable names: "Right Arm", "Left Arm", "Right Leg", "Left Leg", "Torso"
 
@@ -104,14 +129,22 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      // Fallback without OpenAI
+      const isGymFallback = mode === "gym";
       return NextResponse.json({
         grade,
-        headline: grade === "S" || grade === "A" ? "Born to Move" : grade === "B" ? "Not Bad!" : grade === "C" ? "Room to Grow" : "Keep Practicing",
-        persona: grade === "D" ? "The Spectator" : "The Dancer",
-        personaDesc: grade === "D" ? "You watched the video. That counts for something." : "You showed up and gave it your all!",
+        headline: isGymFallback
+          ? (grade === "S" || grade === "A" ? "Peak Form" : grade === "B" ? "Solid Set" : grade === "C" ? "Needs Work" : "Hit the Basics")
+          : (grade === "S" || grade === "A" ? "Born to Move" : grade === "B" ? "Not Bad!" : grade === "C" ? "Room to Grow" : "Keep Practicing"),
+        persona: isGymFallback
+          ? (grade === "D" ? "The Bench Warmer" : "The Athlete")
+          : (grade === "D" ? "The Spectator" : "The Dancer"),
+        personaDesc: isGymFallback
+          ? (grade === "D" ? "The equipment got more of a workout." : "You showed up and put in the reps!")
+          : (grade === "D" ? "You watched the video. That counts for something." : "You showed up and gave it your all!"),
         summary: `You scored an average of ${Math.round(avgScore)} across the session.`,
-        tips: ["Focus on matching arm positions", "Try slowing the video down to learn the moves", "Practice the tricky sections on repeat"],
+        tips: isGymFallback
+          ? ["Focus on maintaining proper form throughout each rep", "Control the eccentric (lowering) phase", "Keep your core engaged during all movements"]
+          : ["Focus on matching arm positions", "Try slowing the video down to learn the moves", "Practice the tricky sections on repeat"],
         bestLimb,
         worstLimb,
       } satisfies AIReport);
@@ -131,10 +164,13 @@ export async function POST(req: NextRequest) {
       videoTitle: videoTitle ?? "Unknown",
     });
 
+    const isGym = mode === "gym";
+    const systemPrompt = isGym ? GYM_SYSTEM_PROMPT : DANCE_SYSTEM_PROMPT;
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
       max_tokens: 400,

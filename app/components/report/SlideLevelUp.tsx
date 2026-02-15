@@ -1,16 +1,19 @@
 "use client";
 
 import type { AIReport } from "./types";
-import { GRADE_COLORS } from "./types";
+import type { AppMode } from "../../shared/mode";
+import { getGradeColors } from "./types";
 
 type Props = {
   report: AIReport;
   active: boolean;
   onClose: () => void;
+  mode: AppMode;
 };
 
-export default function SlideLevelUp({ report, active, onClose }: Props) {
-  const gc = GRADE_COLORS[report.grade] ?? GRADE_COLORS.B;
+export default function SlideLevelUp({ report, active, onClose, mode }: Props) {
+  const isGym = mode === "gym";
+  const gc = getGradeColors(report.grade, mode);
 
   return (
     <div
@@ -20,10 +23,16 @@ export default function SlideLevelUp({ report, active, onClose }: Props) {
     >
       {/* Title */}
       <div
-        className="text-base tracking-[0.5em] uppercase mb-10 neon-text-cyan"
-        style={{ fontFamily: "var(--font-audiowide)" }}
+        className={`text-base tracking-[0.5em] uppercase mb-10 ${isGym ? "" : "neon-text-cyan"}`}
+        style={{
+          fontFamily: "var(--font-audiowide)",
+          ...(isGym ? {
+            color: gc.color,
+            textShadow: `0 0 7px ${gc.glow}, 0 0 20px ${gc.glow}`,
+          } : {}),
+        }}
       >
-        Level Up
+        {isGym ? "Next Session" : "Level Up"}
       </div>
 
       {/* Tips */}
@@ -56,26 +65,30 @@ export default function SlideLevelUp({ report, active, onClose }: Props) {
 
       {/* Summary */}
       <p
-        className={`mt-10 text-center max-w-md neon-text-cyan animate-glow-pulse ${active ? "report-subtitle-pop" : ""}`}
+        className={`mt-10 text-center max-w-md animate-glow-pulse ${active ? "report-subtitle-pop" : ""} ${isGym ? "" : "neon-text-cyan"}`}
         style={{
           fontSize: "clamp(1.05rem, 2.8vw, 1.35rem)",
           fontFamily: "var(--font-chakra-petch)",
           animationDelay: "0.6s",
+          ...(isGym ? {
+            color: gc.color,
+            textShadow: `0 0 7px ${gc.glow}, 0 0 20px ${gc.glow}`,
+          } : {}),
         }}
       >
         {report.summary}
       </p>
 
-      {/* Dance Again button */}
+      {/* CTA button */}
       <button
-        className="neon-btn mt-10 px-10 py-3.5 rounded text-base tracking-[0.2em] uppercase"
+        className={`mt-10 px-10 py-3.5 rounded text-base tracking-[0.2em] uppercase ${isGym ? "report-btn-gym" : "neon-btn"}`}
         style={{ fontFamily: "var(--font-audiowide)" }}
         onClick={(e) => {
           e.stopPropagation();
           onClose();
         }}
       >
-        Dance Again
+        {isGym ? "Train Again" : "Dance Again"}
       </button>
     </div>
   );
