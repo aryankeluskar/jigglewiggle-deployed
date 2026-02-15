@@ -14,6 +14,7 @@ type Props = {
   isReferencePaused?: boolean;
   referenceVideoAspectRatio?: number;
   webcamCaptureRef?: React.MutableRefObject<(() => string | null) | null>;
+  webcamStreamRef?: React.MutableRefObject<MediaStream | null>;
   onWebcamAspectRatio?: (aspectRatio: number) => void;
   referencePose?: NormalizedLandmark[] | null;
   livePose?: NormalizedLandmark[] | null;
@@ -60,7 +61,7 @@ function getPoseBounds(landmarks: NormalizedLandmark[]): { minX: number; maxX: n
   return { minX, maxX, minY, maxY, centerX, centerY, width, height };
 }
 
-export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, playbackRate = 1, isReferencePaused = false, referenceVideoAspectRatio = 16/9, webcamCaptureRef, onWebcamAspectRatio, referencePose, livePose }: Props) {
+export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoTime, playbackRate = 1, isReferencePaused = false, referenceVideoAspectRatio = 16/9, webcamCaptureRef, webcamStreamRef, onWebcamAspectRatio, referencePose, livePose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -300,6 +301,10 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
           audio: false,
         });
 
+        if (webcamStreamRef) {
+          webcamStreamRef.current = stream;
+        }
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -350,11 +355,14 @@ export default function CameraPanel({ onPose, segmentedVideoUrl, referenceVideoT
     return () => {
       activeRef.current = false;
       cancelAnimationFrame(animFrameRef.current);
+      if (webcamStreamRef) {
+        webcamStreamRef.current = null;
+      }
       if (stream) {
         stream.getTracks().forEach((t) => t.stop());
       }
     };
-  }, [onPose, processFrame, webcamCaptureRef]);
+  }, [onPose, processFrame, webcamCaptureRef, webcamStreamRef]);
 
   return (
     <div className="relative w-full h-full rounded overflow-hidden border border-neon-magenta/15 bg-black glow-magenta">

@@ -16,6 +16,8 @@ export default function ReportCard({
   videoTitle,
   loading,
   onClose,
+  recordingUrl,
+  recordingUploading,
 }: ReportCardProps) {
   const [slide, setSlide] = useState(0);
   const isGym = mode === "gym";
@@ -73,7 +75,7 @@ export default function ReportCard({
           <SlideGrade report={report} videoTitle={videoTitle} active={slide === 0} mode={mode} />
           <SlideBody stats={stats} report={report} active={slide === 1} mode={mode} />
           <SlideVibe stats={stats} report={report} active={slide === 2} mode={mode} />
-          <SlideLevelUp report={report} active={slide === 3} onClose={onClose} mode={mode} />
+          <SlideLevelUp report={report} active={slide === 3} onClose={onClose} mode={mode} recordingUrl={recordingUrl} recordingUploading={recordingUploading} />
 
           {/* Dot navigation */}
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-20">

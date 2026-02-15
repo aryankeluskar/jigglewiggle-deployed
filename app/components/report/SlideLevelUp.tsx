@@ -1,5 +1,6 @@
 "use client";
 
+import { QRCodeSVG } from "qrcode.react";
 import type { AIReport } from "./types";
 import type { AppMode } from "../../shared/mode";
 import { getGradeColors } from "./types";
@@ -9,9 +10,11 @@ type Props = {
   active: boolean;
   onClose: () => void;
   mode: AppMode;
+  recordingUrl?: string;
+  recordingUploading?: boolean;
 };
 
-export default function SlideLevelUp({ report, active, onClose, mode }: Props) {
+export default function SlideLevelUp({ report, active, onClose, mode, recordingUrl, recordingUploading }: Props) {
   const isGym = mode === "gym";
   const gc = getGradeColors(report.grade, mode);
 
@@ -79,9 +82,70 @@ export default function SlideLevelUp({ report, active, onClose, mode }: Props) {
         {report.summary}
       </p>
 
+      {/* QR Code for performance recording */}
+      {recordingUrl ? (
+        <div
+          className={`mt-8 flex flex-col items-center gap-2 ${active ? "report-stat-pop" : ""}`}
+          style={{ animationDelay: "0.8s" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="p-3 rounded-lg"
+            style={{
+              background: "rgba(0, 0, 0, 0.6)",
+              border: `1px solid ${gc.color}40`,
+              boxShadow: `0 0 12px ${gc.glow}, 0 0 4px ${gc.color}30`,
+            }}
+          >
+            <QRCodeSVG
+              value={recordingUrl}
+              size={128}
+              bgColor="transparent"
+              fgColor="#ffffff"
+              level="M"
+            />
+          </div>
+          <span
+            className="text-[9px] tracking-[0.3em] uppercase"
+            style={{
+              fontFamily: "var(--font-audiowide)",
+              color: `${gc.color}99`,
+            }}
+          >
+            Scan to download your performance
+          </span>
+        </div>
+      ) : (
+        <div
+          className={`mt-8 flex flex-col items-center gap-2 ${active ? "report-stat-pop" : ""}`}
+          style={{ animationDelay: "0.8s" }}
+        >
+          <div className="w-[128px] h-[128px] flex items-center justify-center rounded-lg"
+            style={{
+              background: "rgba(0, 0, 0, 0.6)",
+              border: `1px solid ${gc.color}40`,
+            }}
+          >
+            <div
+              className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
+              style={{ borderColor: `${gc.color} transparent ${gc.color} ${gc.color}` }}
+            />
+          </div>
+          <span
+            className="text-[9px] tracking-[0.3em] uppercase"
+            style={{
+              fontFamily: "var(--font-audiowide)",
+              color: `${gc.color}99`,
+            }}
+          >
+            {recordingUploading ? "Uploading recording..." : "Preparing recording..."}
+          </span>
+        </div>
+      )}
+
       {/* CTA button */}
       <button
-        className={`mt-10 px-10 py-3.5 rounded text-base tracking-[0.2em] uppercase ${isGym ? "report-btn-gym" : "neon-btn"}`}
+        className={`mt-6 px-10 py-3.5 rounded text-base tracking-[0.2em] uppercase ${isGym ? "report-btn-gym" : "neon-btn"}`}
         style={{ fontFamily: "var(--font-audiowide)" }}
         onClick={(e) => {
           e.stopPropagation();

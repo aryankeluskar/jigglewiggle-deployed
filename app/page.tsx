@@ -34,6 +34,10 @@ import {
   downloadRecording,
   loadRecording,
 } from "./lib/poseRecorder";
+import {
+  startWebcamRecording,
+  stopWebcamRecording,
+} from "./lib/webcamRecorder";
 import type { PoseRecording } from "./lib/poseRecorder";
 import {
   startReplay,
@@ -151,9 +155,13 @@ export default function Home() {
   const [scorePopupPoints, setScorePopupPoints] = useState(0);
   const [comboFlash, setComboFlash] = useState<number | null>(null);
   const [pointsBumpSeq, setPointsBumpSeq] = useState(0);
+  const [recordingUrl, setRecordingUrl] = useState<string | undefined>(undefined);
+  const [recordingUploading, setRecordingUploading] = useState(false);
 
   const youtubePanelRef = useRef<YoutubePanelHandle>(null);
   const webcamCaptureRef = useRef<(() => string | null) | null>(null);
+  const webcamStreamRef = useRef<MediaStream | null>(null);
+  const webcamRecordingStartedRef = useRef(false);
   const livePoseRef = useRef<NormalizedLandmark[] | null>(null);
   const stripPoseCacheRef = useRef<Map<string, StripPoseTimeline>>(new Map());
   const segmentationStartedRef = useRef(false);
@@ -236,6 +244,9 @@ export default function Home() {
       setScorePopupPoints(0);
       setComboFlash(null);
       streakRef.current = 0;
+      setRecordingUrl(undefined);
+      setRecordingUploading(false);
+      webcamRecordingStartedRef.current = false;
     }
 
     setVideoId(id);
@@ -507,6 +518,27 @@ export default function Home() {
     // Show notification instead of immediately showing report
     setSummaryReady(true);
 
+    // Stop webcam recording and upload
+    setRecordingUploading(true);
+    stopWebcamRecording()
+      .then(async (blob) => {
+        if (!blob) return;
+        const res = await fetch("/api/recording/upload", {
+          method: "POST",
+          body: blob,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRecordingUrl(data.url);
+        }
+      })
+      .catch((err) => {
+        console.error("Webcam recording upload failed:", err);
+      })
+      .finally(() => {
+        setRecordingUploading(false);
+      });
+
     fetch("/api/report", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -556,6 +588,18 @@ export default function Home() {
     if (extractionStatus !== "done" || !poseTimeline || !segmentationReady) return;
 
     sessionStartRef.current = performance.now();
+
+    // Start webcam recording for the session
+    webcamRecordingStartedRef.current = false;
+    if (webcamStreamRef.current) {
+      try {
+        startWebcamRecording(webcamStreamRef.current);
+        webcamRecordingStartedRef.current = true;
+      } catch (err) {
+        console.error("Failed to start webcam recording:", err);
+      }
+    }
+
     let raf: number;
     const tick = () => {
       const t = youtubePanelRef.current?.getCurrentTime() ?? 0;
@@ -627,6 +671,16 @@ export default function Home() {
 
             break; // Only score one frame per tick
           }
+        }
+      }
+
+      // Retry webcam recording start if stream became available after session started
+      if (!webcamRecordingStartedRef.current && !videoEndedRef.current && webcamStreamRef.current) {
+        try {
+          startWebcamRecording(webcamStreamRef.current);
+          webcamRecordingStartedRef.current = true;
+        } catch {
+          // will retry next tick
         }
       }
 
@@ -1045,6 +1099,7 @@ export default function Home() {
                 isReferencePaused={isVideoPaused}
                 referenceVideoAspectRatio={referenceVideoAspectRatio}
                 webcamCaptureRef={webcamCaptureRef}
+                webcamStreamRef={webcamStreamRef}
                 onWebcamAspectRatio={setWebcamAspectRatio}
                 referencePose={referencePoseRef.current}
                 livePose={livePoseRef.current}
@@ -1136,6 +1191,8 @@ export default function Home() {
           mode={mode}
           videoTitle={videoTitle}
           loading={reportLoading}
+          recordingUrl={recordingUrl}
+          recordingUploading={recordingUploading}
           onClose={() => {
             setShowReport(false);
             videoEndedRef.current = false;
