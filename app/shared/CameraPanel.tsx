@@ -72,7 +72,6 @@ export default function CameraPanel({ onPose, badge = "LIVE", segmentedVideoUrl,
     }
 
     if (activeRef.current) {
-      // eslint-disable-next-line react-hooks/immutability
       animRef.current = requestAnimationFrame(processFrame);
     }
   }, []);

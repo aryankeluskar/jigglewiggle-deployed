@@ -164,6 +164,7 @@ export default function Home() {
   const scoredFramesRef = useRef<Set<number>>(new Set()); // Track which frame indices we've scored
   const lastScoredFrameIndexRef = useRef<number>(-1); // Track last frame we scored to prevent duplicates
   const prevVideoTimeRef = useRef<number>(0); // Track previous video time to detect rewind
+  const referencePoseRef = useRef<NormalizedLandmark[] | null>(null); // Current reference pose for overlay projection
 
   // Score aura class
   const getAuraClass = () => {
@@ -674,6 +675,9 @@ export default function Home() {
     if (poseTimeline && landmarks && landmarks.length >= 33) {
       const refFrame = findClosestFrame(poseTimeline, effectiveVideoTime);
       if (refFrame && Math.abs(refFrame.time - effectiveVideoTime) <= MAX_REF_DISTANCE_SEC) {
+        // Store reference pose for overlay projection
+        referencePoseRef.current = refFrame.landmarks;
+
         detailed = comparePosesDetailed(
           refFrame.landmarks,
           landmarks,
@@ -681,7 +685,11 @@ export default function Home() {
           webcamAspectRatio
         );
         if (detailed) recordLimbScores(detailed.limbScores);
+      } else {
+        referencePoseRef.current = null;
       }
+    } else {
+      referencePoseRef.current = null;
     }
 
     // 3. Blend scores
@@ -980,8 +988,15 @@ export default function Home() {
               <GestureProgressBar progress={gestureProgress} pending={gesturePending} />
               <CameraPanel
                 onPose={handlePose}
+                segmentedVideoUrl={segmentedVideoUrl}
+                referenceVideoTime={currentVideoTime}
+                playbackRate={playbackRate}
+                isReferencePaused={isVideoPaused}
+                referenceVideoAspectRatio={referenceVideoAspectRatio}
                 webcamCaptureRef={webcamCaptureRef}
                 onWebcamAspectRatio={setWebcamAspectRatio}
+                referencePose={referencePoseRef.current}
+                livePose={livePoseRef.current}
               />
               <ScorePopup score={scorePopup} onComplete={() => setScorePopup(null)} />
               <GestureGuide
