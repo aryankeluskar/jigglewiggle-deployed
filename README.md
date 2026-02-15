@@ -2,6 +2,9 @@
 
 **Learn dance moves from YouTube with real-time AI pose coaching.**
 
+<img width="1568" height="890" alt="image" src="https://github.com/user-attachments/assets/ee59ebe5-8bf5-477a-b759-f3ea83ae9024" />
+
+
 Built at TreeHacks 2026.
 
 ## What it does
