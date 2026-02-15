@@ -21,7 +21,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci
-RUN npm install --no-save lightningcss-linux-x64-gnu@1.30.2
+RUN npm install --no-save lightningcss-linux-x64-gnu@1.30.2 @tailwindcss/oxide-linux-x64-gnu@4.1.18
 
 COPY . .
 RUN npm run build
