@@ -35,8 +35,8 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Copy standalone build output (server.js is nested under the workdir path)
-COPY --from=builder /app/.next/standalone/app ./
+# Copy standalone build output
+COPY --from=builder /app/.next/standalone ./
 # Copy static assets and public files (not included in standalone)
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
