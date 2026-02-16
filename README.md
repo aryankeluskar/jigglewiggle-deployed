@@ -1,68 +1,118 @@
 # Jiggle Wiggle 💃
+
 devpost: https://devpost.com/software/jiggle-wiggle
 
-**Learn dance moves from YouTube with real-time AI pose coaching.**
+**Real-time AI dance & fitness coaching from any YouTube video.**
 
 <img width="1568" height="890" alt="image" src="https://github.com/user-attachments/assets/ee59ebe5-8bf5-477a-b759-f3ea83ae9024" />
-
 
 Built at TreeHacks 2026.
 
 ## What it does
 
-1. Paste any YouTube dance video URL
-2. Your webcam shows a live skeleton overlay tracking your body
-3. An AI coach scores your movement and gives real-time audio feedback
+Paste any YouTube dance or workout video. Your webcam tracks your body in real-time, scores every move against the reference, and an AI coach gives live audio feedback. When the video ends, you get a full Spotify Wrapped-style performance report.
+
+### Core features
+
+- **Auto mode detection** — classifies videos as dance or gym and re-themes the entire UI
+- **Real-time pose scoring** — geometric comparison against reference frames blended with Groq vision scoring, EMA-smoothed at 30fps
+- **Score popups** — PERFECT (+25), GREAT (+20), OK (+15), ALMOST (+10), MISS (0) flash on screen with particle effects, accumulating to a total points counter
+- **Combo streaks** — every 5th consecutive non-miss hit triggers a gold streak celebration
+- **AI coach** — OpenAI LLM watches your pose summary every few seconds and gives personality-driven audio feedback via TTS
+- **Gesture controls** — raise both hands to pause/play, no keyboard needed
+- **Person segmentation** — isolates the dancer from the background using Modal (SAM2)
+- **AI video generation** — describe a workout or dance and it generates a video (Perplexity research → GPT-4o synthesis → Grok video gen)
+- **Performance report card** — 4-slide Spotify Wrapped-style overlay with letter grade, per-limb breakdown, AI persona, and improvement tips
+- **Move queue** — scrolling timeline of key poses extracted from the video
+- **Chrome extension** — sends the current YouTube tab URL to the app
 
 ## Quick Start
 
-### Run the Web App
+### Prerequisites
+
+- Node.js 18+
+- `yt-dlp` and `ffmpeg` installed and on PATH
+- OpenAI API key (for coaching + reports)
+
+### Environment variables
+
+Create `.env.local`:
+
+```
+OPENAI_API_KEY=sk-...
+GROQ_API_KEY=gsk_...          # Groq vision scoring
+XAI_API_KEY=xai-...           # Grok video generation
+PERPLEXITY_API_KEY=...        # AI generate research (optional)
+```
+
+### Run
 
 ```bash
-pnpm install
-pnpm dev
+npm install
+npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
+### Usage
 
-## Quick start
-
-1. Open the app at `localhost:3000`
-2. Paste a YouTube dance video URL (e.g. a short choreography clip)
-3. Allow camera access when prompted
-4. Start dancing — watch the skeleton overlay track your pose
-5. Listen to the audio coach give real-time feedback
-6. Show the score updating live at the bottom
-
-## Tech Stack
-
-- **Frontend:** Next.js (App Router) + TypeScript
-- **UI:** Tailwind CSS
-- **Pose Tracking:** MediaPipe Pose (in-browser, no backend)
-- **Audio Coach:** Web Speech API (`speechSynthesis`)
-- **Chrome Extension:** Manifest v3
-
+1. Paste a YouTube video URL (short clips work best) or use AI Generate
+2. Allow camera access when prompted
+3. Wait for pose extraction + segmentation to complete
+4. Hit play and start moving
+5. Watch score popups, points accumulating, and listen to the AI coach
+6. When the video ends, view your performance report card
 
 ## How Scoring Works
 
-The scoring module evaluates four signals at ~15-30fps:
+Three scoring signals blended per frame:
 
-- **Pose confidence** — MediaPipe detection confidence
-- **Arm height** — Wrist position relative to shoulders
-- **Symmetry** — Left vs right arm alignment
-- **Motion energy** — Average keypoint displacement over time
+| Signal | Weight | Source |
+|--------|--------|--------|
+| Geometric pose comparison | 50-80% | Compares your landmark positions against the closest reference frame using angle and distance matching per limb |
+| Groq vision scoring | 40% | Periodic screenshot comparison (reference vs webcam) scored by Groq's vision model |
+| Heuristic body metrics | 10-20% | Arm height, symmetry, motion energy, torso angle |
 
-Score is 0–100 and updates ~5x per second.
+Final score is EMA-smoothed with alpha 0.15 and a dead zone of 2 to suppress jitter. Frame hits are detected when the video passes each key pose timestamp, converting the smoothed score to a tier (PERFECT 90+, GREAT 80+, OK 60+, ALMOST 40+, MISS <40).
 
-## Coach Rules
+### Report card grades
 
-- If arms low → "Hands up — hit the shape!"
-- If arms uneven → "Match both arms!"
-- If not moving enough → "Bigger moves!"
-- If too chaotic → "Control it — cleaner shapes."
-- If score is high → Hype feedback every 8-12 seconds
-- Messages throttled: max once per 2 seconds, no repeats within 6 seconds
+| Grade | Avg Score |
+|-------|-----------|
+| S | 78+ |
+| A | 62+ |
+| B | 45+ |
+| C | 30+ |
+| D | <30 |
+
+The grade is computed from data. The headline, persona, roasts, and tips are generated by GPT-4o-mini with tone that scales to performance — S/A gets hype, C/D gets roasted.
+
+## Architecture
+
+```
+YouTube URL → /api/download (yt-dlp, SSE progress) → /tmp/jigglewiggle/{id}.mp4
+  → auto-classification (dance/gym) → mode overlay
+  → /api/video/[id] (serves MP4 with range requests)
+  → pose extraction (hidden video + MediaPipe, key frames)
+  → segmentation (Modal SAM2, person mask overlay)
+
+Webcam → MediaPipe Pose (CDN, client-side WASM) → skeleton overlay + scoring
+  → pose summary → /api/coach (OpenAI) → text + TTS audio
+  → frame hits → score popups + points + combo streaks
+  → video end → /api/report (GPT-4o-mini) → report card
+```
+
+## Tech Stack
+
+- **Framework:** Next.js 16 (App Router), React 19, TypeScript
+- **Styling:** Tailwind CSS 4
+- **Pose detection:** MediaPipe Pose 0.5 (client-side WASM via CDN)
+- **AI coaching:** OpenAI GPT-4o-mini + TTS
+- **Vision scoring:** Groq (periodic screenshot comparison)
+- **Video segmentation:** Modal (SAM2)
+- **Video generation:** Grok (xAI) + Perplexity Sonar + GPT-4o
+- **Video download:** yt-dlp + ffmpeg
+
 
 ## License
 
