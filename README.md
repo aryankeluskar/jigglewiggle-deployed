@@ -1,4 +1,5 @@
 # Jiggle Wiggle 💃
+devpost: https://devpost.com/software/jiggle-wiggle
 
 **Learn dance moves from YouTube with real-time AI pose coaching.**
 
