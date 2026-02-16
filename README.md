@@ -13,7 +13,6 @@ Built at TreeHacks 2026.
 1. Paste any YouTube dance video URL
 2. Your webcam shows a live skeleton overlay tracking your body
 3. An AI coach scores your movement and gives real-time audio feedback
-4. A Chrome extension lets you open any YouTube video in the app with one click
 
 ## Quick Start
 
@@ -26,15 +25,8 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Load the Chrome Extension
 
-1. Open `chrome://extensions/`
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked**
-4. Select the `extension/` folder from this project
-5. Navigate to any YouTube video and click the **Jiggle Wiggle** toolbar button
-
-## 60-Second Demo Script
+## Quick start
 
 1. Open the app at `localhost:3000`
 2. Paste a YouTube dance video URL (e.g. a short choreography clip)
@@ -42,7 +34,6 @@ Open [http://localhost:3000](http://localhost:3000).
 4. Start dancing — watch the skeleton overlay track your pose
 5. Listen to the audio coach give real-time feedback
 6. Show the score updating live at the bottom
-7. (Optional) Click the Chrome extension button on a YouTube page to auto-open
 
 ## Tech Stack
 
@@ -52,42 +43,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Audio Coach:** Web Speech API (`speechSynthesis`)
 - **Chrome Extension:** Manifest v3
 
-## Project Structure
-
-```
-/app
-  page.tsx                  # Main split-screen page
-  layout.tsx                # Root layout
-  globals.css               # Global styles
-  /components
-    UrlInput.tsx             # YouTube URL input
-    YoutubePanel.tsx         # Embedded YouTube player
-    CameraPanel.tsx          # Webcam + skeleton overlay
-    CoachPanel.tsx           # Score display + coaching subtitles
-  /lib
-    youtube.ts               # URL parsing utilities
-    pose.ts                  # MediaPipe Pose setup & skeleton drawing
-    scoring.ts               # Movement scoring heuristics
-    coach.ts                 # Rule-based coaching logic
-    speech.ts                # Web Speech API wrapper
-/extension
-    manifest.json            # Chrome extension manifest (v3)
-    background.ts            # Service worker source
-    background.js            # Compiled service worker
-    icon.png                 # Toolbar icon
-```
-
-## Sponsor Mapping
-
-| Sponsor   | Integration Angle |
-|-----------|-------------------|
-| **Modal** | Host segmentation / advanced pose model on Modal for server-side processing |
-| **OpenAI** | Multi-turn adaptive coaching — conversational AI that learns your style |
-| **Suno** | Dynamic music overlay — generate practice tracks that match the video BPM |
-| **Greylock** | Agent that adapts coaching strategy based on cumulative feedback |
-| **Decagon** | Conversational assistant coach with natural dialogue |
-| **HeyGen** | Selectable animated coach avatar styles overlaid on screen |
-| **Neo** | Business/product angle — dance education platform for creators |
 
 ## How Scoring Works
 
